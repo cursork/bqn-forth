@@ -1,6 +1,8 @@
 \ bf.fs — BQN-to-Forth compiler
-\ Run: gforth bf.fs
-\ https://mlochbaum.github.io/BQN
+\ Original BQN: https://mlochbaum.github.io/BQN
+\ This is a clean-room implementation
+\
+\ Usage: gforth -e 'include bf.fs' -e repl
 
 \ ============================================================
 \ Phase 1: Runtime kernel
@@ -1649,17 +1651,20 @@ variable _bnd_r   \ captured right subject for bind
   _out _outp @ type
   r> readable ! ;
 
+: bqn-debug ( c-addr u -- )
+  utf8>cps  0 _pos !
+  out-reset
+  parse-expr
+  skip-ws
+  at-end? invert abort" Unexpected tokens after expression"
+  _out _outp @ type ;
+
 : bqn ( "expr" -- )
   source >in @ /string
   ." \=> " 2dup bqn-show
   bqn-eval cr v. cr
   source nip >in ! ;
 
-: bqn-debug ( "expr" -- )
-  source >in @ /string
-  2dup bqn-show ."  → "
-  bqn-eval v. cr
-  source nip >in ! ;
 
 \ ============================================================
 \ Phase 5: REPL
