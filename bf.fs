@@ -503,6 +503,16 @@ create _nbuf 40 allot
   idx 0< idx a arr-nelts >= or abort" ⊑: index out of range"
   a arr-data idx cells + @ ;
 
+\ --- Block runtime ---
+
+variable _bqn-x   \ current 𝕩
+variable _bqn-w   \ current 𝕨
+
+\ Function calling: all blocks expect ( w x -- r ).
+\ Monadic callers pass 0 as 𝕨 (blocks that don't use 𝕨 ignore it).
+: bqn-call1 { fn x -- r }   0 x fn payload execute ;
+: bqn-call2 { w fn x -- r } w x fn payload execute ;
+
 \ ============================================================
 \ Phase 3: Parser + Compiler
 \ ============================================================
@@ -833,8 +843,90 @@ variable _numlen
       _pos @ 1+ cp@ bqn-digit? exit then then
   false ;
 
+\ Is current position a function-role token?
+: cur-is-func? ( -- f )
+  at-end? if false exit then
+  _pos @ cp@ is-bqn-func? if true exit then
+  _pos @ cp@ { c }
+  c [char] A >= c [char] Z <= and if true exit then
+  c [char] { = if true exit then
+  false ;
+
+\ Is current position an assignment (name ← ...)?
+: check-assign? ( -- f )
+  _pos @ { saved }
+  _pos @ cp@ letter? invert if false exit then
+  begin
+    at-end? invert if _pos @ cp@ name-char? else false then
+  while advance repeat
+  skip-ws
+  at-end? invert if
+    _pos @ cp@ dup $2190 = swap $21A9 = or
+  else false then
+  saved _pos ! ;
+
+\ Function kind returned by parse-func
+0 constant FN_PRIM  \ ( -- FN_PRIM code-point )
+1 constant FN_VAL   \ ( -- FN_VAL 0 )  value already emitted to stack
+
 defer parse-expr
 
+\ Scan a name from current position, return start and end indices.
+: scan-name ( -- start end )
+  _pos @ { nstart }
+  begin
+    at-end? invert if _pos @ cp@ name-char? else false then
+  while advance repeat
+  nstart _pos @ ;
+
+\ Parse assignment: name ← expr (works for any role).
+: parse-assign ( -- )
+  scan-name nm-intern { slot }
+  skip-ws advance  \ skip ← or ↩
+  parse-expr
+  s" dup " out-append
+  slot emit-decimal s" env! " out-append ;
+
+\ Parse a block { ... } into a :noname function.
+: parse-block ( -- )
+  advance  \ skip {
+  s" :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! " out-append
+  \ Parse body statements
+  parse-expr
+  begin
+    skip-ws
+    at-end? abort" Unclosed {"
+    _pos @ cp@ dup $22C4 = swap [char] , = or
+  while
+    advance
+    s" drop " out-append
+    parse-expr
+  repeat
+  _pos @ cp@ [char] } <> abort" Expected }"
+  advance
+  s" _old_x _bqn-x ! _old_w _bqn-w ! ; >fn " out-append ;
+
+\ Parse a function (primitive, uppercase name, or block).
+\ Returns ( fn-type fn-data ). For FN_VAL, emits code that pushes fn.
+: parse-func ( -- fn-type fn-data )
+  _pos @ cp@ is-bqn-func? if
+    _pos @ cp@ advance  FN_PRIM swap exit
+  then
+  _pos @ cp@ [char] { = if
+    parse-block  FN_VAL 0 exit
+  then
+  \ Must be uppercase name
+  scan-name nm-intern { slot }
+  slot emit-decimal s" env@? " out-append
+  FN_VAL 0 ;
+
+: emit-apply-m ( fn-type fn-data -- )
+  swap FN_PRIM = if emit-monad-fn else drop s" bqn-call1 " out-append then ;
+
+: emit-apply-d ( fn-type fn-data -- )
+  swap FN_PRIM = if emit-dyad-fn else drop s" bqn-call2 " out-append then ;
+
+\ Parse a subject atom (values, not functions).
 : parse-atom ( -- )
   skip-ws
   at-end? abort" Expected expression"
@@ -855,24 +947,13 @@ defer parse-expr
     else
       _pos @ scan-string _pos !  emit-hex
     then exit then
+  _pos @ cp@ $1D569 = if  \ 𝕩
+    advance  s" _bqn-x @ " out-append exit then
+  _pos @ cp@ $1D568 = if  \ 𝕨
+    advance  s" _bqn-w @ " out-append exit then
   _pos @ cp@ letter? if
-    _pos @ { nstart }
-    begin
-      at-end? invert if _pos @ cp@ name-char? else false then
-    while advance repeat
-    _pos @ { nend }
-    nstart nend nm-intern { slot }
-    skip-ws
-    \ Check for ← (U+2190) or ↩ (U+21A9)
-    at-end? invert if
-      _pos @ cp@ dup $2190 = swap $21A9 = or if
-        advance
-        parse-expr
-        s" dup " out-append
-        slot emit-decimal s" env! " out-append
-        exit
-      then
-    then
+    \ Lowercase name (subject role) — handled here
+    scan-name nm-intern { slot }
     slot emit-decimal s" env@? " out-append exit then
   _pos @ cp@ [char] ( = if
     advance  parse-expr
@@ -893,25 +974,42 @@ defer parse-expr
     repeat
     advance
     count emit-decimal  s" mk-list " out-append  exit then
-  _pos @ cp@ ." Unexpected: U+" hex . decimal cr abort ;
+  _pos @ cp@ ." Unexpected: U+" hex . decimal cr -1 throw ;
 
+\ Main expression parser.
 :noname ( -- )
   skip-ws
   at-end? abort" Expected expression"
-  _pos @ cp@ is-bqn-func? if
-    _pos @ cp@ { fn } advance
-    parse-expr
-    fn emit-monad-fn
-  else
-    parse-atom
+  \ Assignment: name ← expr
+  check-assign? if parse-assign exit then
+  \ Function: may be applied (F x) or standalone (F←{...})
+  cur-is-func? if
+    parse-func { ft fd }
     skip-ws
+    \ Check if followed by something that could be an argument
     at-end? invert if
-      _pos @ cp@ is-bqn-func? if
-        _pos @ cp@ { fn } advance
-        parse-expr
-        fn emit-dyad-fn
-      then
+      _pos @ cp@ { nc }
+      nc bqn-digit? nc $AF = or nc $221E = or nc $3C0 = or
+      nc [char] ' = or nc [char] " = or
+      nc [char] ( = or nc $27E8 = or
+      nc $1D569 = or nc $1D568 = or  \ 𝕩 𝕨
+      nc [char] . = or
+      nc letter? nc [char] a >= nc [char] z <= and and or
+      cur-is-func? or  \ nested function application: F G x
+    else false then
+    if
+      parse-expr
+      ft fd emit-apply-m
     then
+    exit
+  then
+  \ Subject, possibly followed by dyadic: w F x
+  parse-atom
+  skip-ws
+  at-end? invert cur-is-func? and if
+    parse-func { ft fd }
+    parse-expr
+    ft fd emit-apply-d
   then
 ; is parse-expr
 

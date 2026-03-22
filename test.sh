@@ -2,7 +2,7 @@
 # Comparative test: bf primitives vs CBQN
 # Usage: ./test.sh
 
-BQN=~/dev/CBQN/BQN
+BQN=BQN
 PASS=0
 FAIL=0
 ERRORS=""
@@ -174,6 +174,15 @@ test_bqn "a←5⋄a+3"         "a←5⋄a+3"
 test_bqn "a←5⋄b←3⋄a×b"    "a←5⋄b←3⋄a×b"
 test_bqn "x←↕5⋄1+x"       "x←↕5⋄1+x"
 test_bqn "a←2⋄a↩a+1⋄a"    "a←2⋄a↩a+1⋄a"
+
+# --- Blocks ---
+test_bqn "{𝕩+1}5"              "{𝕩+1}5"
+test_bqn "3{𝕩+𝕨}5"            "3{𝕩+𝕨}5"
+test_bqn "{𝕩×2}⟨1,2,3⟩"       "{𝕩×2}⟨1,2,3⟩"
+test_bqn "F←{𝕩×2}⋄F 5"        "F←{𝕩×2}⋄F 5"
+test_bqn "{𝕩+1}{𝕩×2}5"        "{𝕩+1}{𝕩×2}5"
+test_bqn "a←5⋄{𝕩+a}3"         "a←5⋄{𝕩+a}3"
+test_bqn "F←{𝕩+1}⋄G←{𝕩×2}⋄F G 3" "F←{𝕩+1}⋄G←{𝕩×2}⋄F G 3"
 
 # --- Results ---
 echo ""
