@@ -157,6 +157,30 @@ variable _ftmp
 
 \ --- Printing ---
 
+\ Format a non-negative, non-integer float from the float stack.
+\ Strips trailing zeros for clean output (3.5 not 3.5000...).
+create _nbuf 40 allot
+
+: _fmtnum ( F: r -- )
+  _nbuf 15 represent drop drop { exp }
+  \ Strip trailing zeros from significant digits
+  15 begin
+    dup 1 > if _nbuf over 1- + c@ [char] 0 = else false then
+  while 1- repeat
+  { sd }
+  exp 0> exp sd >= and if
+    sd 0 ?do _nbuf i + c@ emit loop
+    exp sd - 0 ?do [char] 0 emit loop
+  else exp 0> if
+    exp 0 ?do _nbuf i + c@ emit loop
+    [char] . emit
+    sd exp ?do _nbuf i + c@ emit loop
+  else
+    [char] 0 emit [char] . emit
+    exp negate 0 ?do [char] 0 emit loop
+    sd 0 ?do _nbuf i + c@ emit loop
+  then then ;
+
 : v. ( v -- )
   dup num? if
     dup NEG_INF = if drop ." ¯∞" exit then
@@ -167,12 +191,13 @@ variable _ftmp
     fdup floor fover f= if
       f>d d>s 0 .r
     else
-      f.  \ TODO: trailing space
+      _fmtnum
     then
     exit
   then
   dup char? if
     payload
+    dup 0= if drop ." @" exit then
     dup 32 >= over 126 <= and if
       [char] ' emit emit [char] ' emit
     else
@@ -182,13 +207,26 @@ variable _ftmp
   then
   dup arr? if
     payload { a }
-    ." ⟨ "
     a arr-nelts { n }
-    n 0 ?do
-      a arr-data i cells + @ recurse
-      i n 1- < if ." , " then
+    n 0= if ." ⟨⟩" exit then
+    \ Check for string (all chars)
+    true  n 0 ?do
+      a arr-data i cells + @ char? invert if drop false leave then
     loop
-    ."  ⟩"
+    if
+      \ String display
+      [char] " emit
+      n 0 ?do a arr-data i cells + @ payload emit loop
+      [char] " emit
+    else
+      \ General list
+      ." ⟨ "
+      n 0 ?do
+        a arr-data i cells + @ recurse
+        i n 1- < if space then
+      loop
+      ."  ⟩"
+    then
     exit
   then
   dup fn? if drop ." <fn>" exit then
@@ -196,6 +234,182 @@ variable _ftmp
   dup m2? if drop ." <2-mod>" exit then
   dup ns? if drop ." <ns>" exit then
   drop ." <?>" ;
+
+\ ============================================================
+\ Phase 2: Core primitives
+\ ============================================================
+
+\ Primitives operate on tagged BQN values.
+\ Dyadic: ( w x -- r )   Monadic: ( x -- r )
+\ Scalar functions apply element-wise on arrays (pervasion).
+
+\ --- Pervasion machinery ---
+
+\ Apply monadic scalar fn to each element, returning new array.
+\ ( xt arr-value -- result-arr-value )
+: perv-m { xt a -- v }
+  a payload { ap }
+  ap cell+ @ ap arr-nelts { rank n }
+  rank n arr-alloc { rp }
+  \ Copy shape
+  rank 0 ?do
+    ap arr-shape i cells + @
+    rp arr-shape i cells + !
+  loop
+  \ Apply fn to each element
+  n 0 ?do
+    ap arr-data i cells + @  xt execute
+    rp arr-data i cells + !
+  loop
+  rp >arr ;
+
+\ Apply dyadic scalar fn element-wise, returning new array.
+\ Both args must be same-shape arrays.
+\ ( xt w-arr x-arr -- result-arr )
+: perv-d { xt wa xa -- v }
+  wa payload xa payload { wp xp }
+  xp cell+ @ xp arr-nelts { rank n }
+  rank n arr-alloc { rp }
+  rank 0 ?do
+    xp arr-shape i cells + @
+    rp arr-shape i cells + !
+  loop
+  n 0 ?do
+    wp arr-data i cells + @
+    xp arr-data i cells + @
+    xt execute
+    rp arr-data i cells + !
+  loop
+  rp >arr ;
+
+\ Full pervasion: scalar-scalar, scalar-array, array-scalar, array-array.
+\ ( xt w x -- r )  xt is the scalar-scalar case.
+: pervade { xt w x -- r }
+  w arr? invert x arr? invert and if
+    \ Both scalars
+    w x xt execute exit
+  then
+  w arr? invert x arr? and if
+    \ w is scalar, x is array — map (w xt) over x
+    x payload { xp }
+    xp cell+ @ xp arr-nelts { rank n }
+    rank n arr-alloc { rp }
+    rank 0 ?do xp arr-shape i cells + @ rp arr-shape i cells + ! loop
+    n 0 ?do
+      w  xp arr-data i cells + @  xt execute
+      rp arr-data i cells + !
+    loop
+    rp >arr exit
+  then
+  w arr? x arr? invert and if
+    \ w is array, x is scalar — map (xt x) over w
+    w payload { wp }
+    wp cell+ @ wp arr-nelts { rank n }
+    rank n arr-alloc { rp }
+    rank 0 ?do wp arr-shape i cells + @ rp arr-shape i cells + ! loop
+    n 0 ?do
+      wp arr-data i cells + @  x  xt execute
+      rp arr-data i cells + !
+    loop
+    rp >arr exit
+  then
+  \ Both arrays
+  xt w x perv-d ;
+
+\ Monadic pervasion: scalar or element-wise on array.
+: pervade-m { xt x -- r }
+  x arr? if xt x perv-m exit then
+  x xt execute ;
+
+\ --- Scalar arithmetic helpers (operate on tagged nums) ---
+
+: num-add ( w x -- r ) swap bits>f bits>f f+ f>bits canon ;
+: num-sub ( w x -- r ) swap bits>f bits>f f- f>bits canon ;
+: num-mul ( w x -- r ) swap bits>f bits>f f* f>bits canon ;
+: num-div ( w x -- r ) swap bits>f bits>f f/ f>bits canon ;
+: num-pow ( w x -- r ) swap bits>f bits>f f** f>bits canon ;
+: num-mod ( w x -- r )
+  swap bits>f bits>f { F: a F: b }
+  b a f/ floor a f* b fswap f- f>bits canon ;
+: num-min ( w x -- r ) swap bits>f bits>f fmin f>bits ;
+: num-max ( w x -- r ) swap bits>f bits>f fmax f>bits ;
+: num-neg ( x -- r )   bits>f fnegate f>bits ;
+: num-abs ( x -- r )   bits>f fabs f>bits ;
+: num-floor ( x -- r ) bits>f floor f>bits ;
+: num-ceil ( x -- r )  bits>f fnegate floor fnegate f>bits ;
+: num-sqrt ( x -- r )  bits>f fsqrt f>bits canon ;
+
+\ --- Comparison helpers (return BQN numbers: 0 or 1) ---
+
+: num-eq  ( w x -- r ) swap bits>f bits>f f= if 1 else 0 then >inum ;
+: num-ne  ( w x -- r ) swap bits>f bits>f f<> if 1 else 0 then >inum ;
+: num-lt  ( w x -- r ) swap bits>f bits>f f< if 1 else 0 then >inum ;
+: num-gt  ( w x -- r ) swap bits>f bits>f f> if 1 else 0 then >inum ;
+: num-le  ( w x -- r ) swap bits>f bits>f f> if 0 else 1 then >inum ;
+: num-ge  ( w x -- r ) swap bits>f bits>f f< if 0 else 1 then >inum ;
+
+\ --- BQN primitive words ---
+\ Dyadic: ( w x -- r )   Monadic: ( x -- r )
+
+\ + (Add / Conjugate)
+: bqn-add  ( w x -- r ) ['] num-add -rot pervade ;
+: bqn-conj ( x -- r ) ;  \ conjugate is identity for reals
+
+\ - (Subtract / Negate)
+: bqn-sub  ( w x -- r ) ['] num-sub -rot pervade ;
+: bqn-neg  ( x -- r )   ['] num-neg swap pervade-m ;
+
+\ × (Multiply / Sign)
+: bqn-mul  ( w x -- r ) ['] num-mul -rot pervade ;
+: num-sign ( x -- r )
+  bits>f fdup f0< if fdrop -1 >inum
+  else fdup f0= if fdrop 0 >inum
+  else fdrop 1 >inum then then ;
+: bqn-sign ( x -- r ) ['] num-sign swap pervade-m ;
+
+\ ÷ (Divide / Reciprocal)
+: bqn-div  ( w x -- r ) ['] num-div -rot pervade ;
+: bqn-recip ( x -- r )  1 >inum swap bqn-div ;
+
+\ ⋆ (Power / Exponential)
+: bqn-pow  ( w x -- r ) ['] num-pow -rot pervade ;
+: bqn-exp  ( x -- r )
+  2.718281828459045e0 >num swap bqn-pow ;
+
+\ √ (Root / Square Root)
+: bqn-sqrt ( x -- r )   ['] num-sqrt swap pervade-m ;
+: bqn-root ( w x -- r )  \ w√x = x⋆÷w
+  swap bqn-recip swap bqn-pow ;
+
+\ | (Modulus / Absolute Value)
+: bqn-mod  ( w x -- r ) ['] num-mod -rot pervade ;
+: bqn-abs  ( x -- r )   ['] num-abs swap pervade-m ;
+
+\ ⌊ (Minimum / Floor)
+: bqn-min   ( w x -- r ) ['] num-min -rot pervade ;
+: bqn-floor ( x -- r )   ['] num-floor swap pervade-m ;
+
+\ ⌈ (Maximum / Ceiling)
+: bqn-max   ( w x -- r ) ['] num-max -rot pervade ;
+: bqn-ceil  ( x -- r )   ['] num-ceil swap pervade-m ;
+
+\ = (Equals / Rank)  — only dyadic pervasive; monadic is structural
+: bqn-eq ( w x -- r ) ['] num-eq -rot pervade ;
+
+\ ≠ (Not Equals / Length)
+: bqn-ne ( w x -- r ) ['] num-ne -rot pervade ;
+
+\ < (Less Than / Enclose)
+: bqn-lt ( w x -- r ) ['] num-lt -rot pervade ;
+
+\ > (Greater Than / Merge)
+: bqn-gt ( w x -- r ) ['] num-gt -rot pervade ;
+
+\ ≤ (Less or Equal)
+: bqn-le ( w x -- r ) ['] num-le -rot pervade ;
+
+\ ≥ (Greater or Equal)
+: bqn-ge ( w x -- r ) ['] num-ge -rot pervade ;
 
 \ ============================================================
 \ Tests
@@ -262,13 +476,18 @@ variable _ftmp
   ."   0 → " 0 >inum v. cr
   ."   3.14 → " 3.14e0 >num v. cr
   ."   'A' → " 65 >char v. cr
-  ."   @+0 → " 0 >char v. cr
-  ."   ⟨ 1, 2, 3 ⟩ → "
+  ."   @ → " 0 >char v. cr
+  ."   ⟨ 1 2 3 ⟩ → "
     1 >inum 2 >inum 3 >inum 3 mk-list dup v. v-release cr
-  ."   ⟨  ⟩ → "
+  ."   ⟨⟩ → "
     0 mk-list dup v. v-release cr
-  ."   nested → "
+  ."   ⟨ ⟨ 1 2 ⟩ 3 ⟩ → "
     1 >inum 2 >inum 2 mk-list 3 >inum 2 mk-list
+    dup v. v-release cr
+  ."   " [char] " emit ." abc" [char] " emit ."  → "
+    97 >char 98 >char 99 >char 3 mk-list dup v. v-release cr
+  ."   ⟨ 1 " [char] " emit ." ab" [char] " emit ."  3 ⟩ → "
+    1 >inum 97 >char 98 >char 2 mk-list 3 >inum 3 mk-list
     dup v. v-release cr
   ." ok" cr ;
 
@@ -282,5 +501,5 @@ variable _ftmp
   test-print
   cr ." all passed." cr ;
 
-test-all
-bye
+\ Run tests only when loaded directly: gforth bf.fs
+\ When included by another file, tests are available but not auto-run.
