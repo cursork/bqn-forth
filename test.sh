@@ -14,7 +14,7 @@ test() {
   local expected got
 
   expected=$($BQN -p "$bqn_expr" 2>&1)
-  got=$(gforth -e 'include bf.fs' -e "$forth_expr v. cr bye" 2>&1)
+  got=$(gforth -e 'include bf.fs' -e "$forth_expr v. cr bye" 2>/dev/null)
 
   if [ "$expected" = "$got" ]; then
     PASS=$((PASS + 1))
@@ -80,6 +80,72 @@ test "|⟨¯1,2,¯3⟩" "|⟨¯1,2,¯3⟩" "-1 >inum 2 >inum -3 >inum 3 mk-list 
 # --- Edge cases ---
 test "0÷0"        "0÷0"        "0 >inum 0 >inum bqn-div"
 test "1÷0"        "1÷0"        "1 >inum 0 >inum bqn-div"
+
+# ============================================================
+# Phase 3: Compiler tests (BQN source → Forth via bqn-eval)
+# ============================================================
+
+# test_bqn "description" "bqn-expr"
+# Same expression is compiled by bf AND run by CBQN.
+test_bqn() {
+  local desc="$1" expr="$2"
+  local expected got
+
+  expected=$($BQN -p "$expr" 2>&1)
+  got=$(gforth -e 'include bf.fs' -e "s\" $expr\" bqn-eval v. cr bye" 2>/dev/null)
+
+  if [ "$expected" = "$got" ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: $desc\n    bqn:   ${expected}\n    forth: ${got}"
+  fi
+}
+
+# --- Literals ---
+test_bqn "lit 42"       "42"
+test_bqn "lit 0"        "0"
+test_bqn "lit ¯3"       "¯3"
+test_bqn "lit 3.14"     "3.14"
+
+# --- Arithmetic ---
+test_bqn "2+3"          "2+3"
+test_bqn "2+3×4"        "2+3×4"
+test_bqn "(2+3)×4"      "(2+3)×4"
+test_bqn "10-3-2"       "10-3-2"
+test_bqn "2⋆10"         "2⋆10"
+test_bqn "7÷2"          "7÷2"
+test_bqn "2|7"          "2|7"
+test_bqn "3⌊5"          "3⌊5"
+test_bqn "3⌈5"          "3⌈5"
+
+# --- Monadic ---
+test_bqn "-3"           "-3"
+test_bqn "-2+3"         "-2+3"
+test_bqn "|¯5"          "|¯5"
+test_bqn "⌊3.7"         "⌊3.7"
+test_bqn "⌈3.2"         "⌈3.2"
+test_bqn "√4"           "√4"
+test_bqn "×¯7"          "×¯7"
+
+# --- Comparison ---
+test_bqn "3=3"          "3=3"
+test_bqn "3<4"          "3<4"
+test_bqn "3≠4"          "3≠4"
+test_bqn "3≤3"          "3≤3"
+
+# --- Lists ---
+test_bqn "⟨1,2,3⟩"      "⟨1,2,3⟩"
+test_bqn "⟨⟩"           "⟨⟩"
+test_bqn "1+⟨2,3,4⟩"    "1+⟨2,3,4⟩"
+test_bqn "⟨1,2,3⟩+⟨4,5,6⟩" "⟨1,2,3⟩+⟨4,5,6⟩"
+test_bqn "-⟨1,2,3⟩"     "-⟨1,2,3⟩"
+test_bqn "⟨2+3,4×5⟩"    "⟨2+3,4×5⟩"
+
+# --- Nested ---
+test_bqn "⟨⟨1,2⟩,3⟩"    "⟨⟨1,2⟩,3⟩"
+test_bqn "((2+3))"      "((2+3))"
+test_bqn "-|¯5"         "-|¯5"
 
 # --- Results ---
 echo ""

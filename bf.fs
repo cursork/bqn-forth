@@ -412,6 +412,355 @@ create _nbuf 40 allot
 : bqn-ge ( w x -- r ) ['] num-ge -rot pervade ;
 
 \ ============================================================
+\ Phase 3: Parser + Compiler
+\ ============================================================
+
+\ The parser reads BQN source (UTF-8), emits Forth source text
+\ into a buffer, then EVALUATEs it. The result is real Forth
+\ threaded code — not an interpreter.
+
+\ --- UTF-8 decoding ---
+
+: utf8-decode ( c-addr -- cp bytes )
+  dup c@ { addr a }
+  a $80 < if a 1 exit then
+  a $E0 < if
+    a $1F and 6 lshift addr 1+ c@ $3F and or  2 exit then
+  a $F0 < if
+    a $0F and 12 lshift addr 1+ c@ $3F and 6 lshift or
+    addr 2 + c@ $3F and or  3 exit then
+  a $07 and 18 lshift addr 1+ c@ $3F and 12 lshift or
+  addr 2 + c@ $3F and 6 lshift or  addr 3 + c@ $3F and or  4 ;
+
+\ --- Code point buffer ---
+
+4096 constant MAX_CPS
+create _cps MAX_CPS cells allot
+variable _cplen
+variable _pos
+
+: utf8>cps ( c-addr u -- )
+  0 _cplen !
+  over + swap  ( end curr )
+  begin 2dup > while
+    dup utf8-decode  ( end curr cp bytes )
+    >r _cps _cplen @ cells + !  1 _cplen +!
+    r> +
+  repeat 2drop ;
+
+: cp@ ( i -- cp ) cells _cps + @ ;
+: at-end? ( -- f ) _pos @ _cplen @ >= ;
+: advance  1 _pos +! ;
+
+\ --- Character classification ---
+
+: ws? ( cp -- f )
+  dup bl = over 9 = or over 10 = or swap 13 = or ;
+
+: bqn-digit? ( cp -- f )
+  dup [char] 0 >= swap [char] 9 <= and ;
+
+: is-bqn-func? ( cp -- f )
+  case
+    [char] + of true endof    [char] - of true endof
+    $D7     of true endof    $F7     of true endof
+    $22C6   of true endof    $221A   of true endof
+    $230A   of true endof    $2308   of true endof
+    [char] | of true endof    [char] = of true endof
+    $2260   of true endof    [char] < of true endof
+    [char] > of true endof    $2264   of true endof
+    $2265   of true endof
+    false swap
+  endcase ;
+
+\ --- Skip whitespace and comments ---
+
+: skip-ws
+  begin at-end? invert while
+    _pos @ cp@ ws? if advance
+    else _pos @ cp@ [char] # = if
+      begin advance  at-end? invert if _pos @ cp@ 10 <> else false then while repeat
+    else exit then then
+  repeat ;
+
+\ --- Output buffer (generated Forth source) ---
+
+4096 constant MAX_OUT
+create _out MAX_OUT allot
+variable _outp
+
+: out-reset  0 _outp ! ;
+: out-char ( c -- )  _out _outp @ + c!  1 _outp +! ;
+: out-append { src len -- }
+  src _out _outp @ + len move  len _outp +! ;
+
+\ --- Emit helpers ---
+
+variable readable  0 readable !  \ 1 = human-readable output
+
+: >hex-nib ( n -- c ) dup 10 < if [char] 0 + else 10 - [char] A + then ;
+
+: emit-hex ( u -- )
+  [char] $ out-char
+  60 begin dup 0>= while
+    2dup rshift $F and >hex-nib out-char  4 -
+  repeat 2drop  bl out-char ;
+
+: emit-decimal ( n -- )
+  base @ >r decimal
+  s>d <# #s #> out-append  bl out-char
+  r> base ! ;
+
+\ Format non-integer float into output buffer (no sign, no suffix).
+: _fmtnum-out ( F: r -- )
+  _nbuf 15 represent drop drop { exp }
+  15 begin
+    dup 1 > if _nbuf over 1- + c@ [char] 0 = else false then
+  while 1- repeat
+  { sd }
+  exp 0> exp sd >= and if
+    _nbuf sd out-append
+    exp sd - 0 ?do [char] 0 out-char loop
+  else exp 0> if
+    _nbuf exp out-append  [char] . out-char
+    _nbuf exp + sd exp - out-append
+  else
+    [char] 0 out-char [char] . out-char
+    exp negate 0 ?do [char] 0 out-char loop
+    _nbuf sd out-append
+  then then ;
+
+\ Emit a BQN number value.
+: emit-num ( v -- )
+  readable @ 0= if emit-hex exit then
+  dup POS_INF = if drop s" POS_INF " out-append exit then
+  dup NEG_INF = if drop s" NEG_INF " out-append exit then
+  dup CANON_NAN = if drop s" CANON_NAN " out-append exit then
+  bits>f
+  fdup floor fover f= if
+    f>d d>s
+    dup 0< if [char] - out-char negate then
+    emit-decimal s" >inum " out-append
+  else
+    fdup f0< if [char] - out-char fabs then
+    _fmtnum-out  s" e0 >num " out-append
+  then ;
+
+\ Emit a BQN character value.
+: emit-char ( v -- )
+  readable @ 0= if emit-hex exit then
+  payload emit-decimal s" >char " out-append ;
+
+\ --- Primitive name emission ---
+
+: emit-monad-fn ( cp -- )
+  case
+    [char] + of endof
+    [char] - of s" bqn-neg " out-append endof
+    $D7     of s" bqn-sign " out-append endof
+    $F7     of s" bqn-recip " out-append endof
+    $22C6   of s" bqn-exp " out-append endof
+    $221A   of s" bqn-sqrt " out-append endof
+    $230A   of s" bqn-floor " out-append endof
+    $2308   of s" bqn-ceil " out-append endof
+    [char] | of s" bqn-abs " out-append endof
+    true abort" Unknown monadic primitive"
+  endcase ;
+
+: emit-dyad-fn ( cp -- )
+  case
+    [char] + of s" bqn-add " out-append endof
+    [char] - of s" bqn-sub " out-append endof
+    $D7     of s" bqn-mul " out-append endof
+    $F7     of s" bqn-div " out-append endof
+    $22C6   of s" bqn-pow " out-append endof
+    $221A   of s" bqn-root " out-append endof
+    $230A   of s" bqn-min " out-append endof
+    $2308   of s" bqn-max " out-append endof
+    [char] | of s" bqn-mod " out-append endof
+    [char] = of s" bqn-eq " out-append endof
+    $2260   of s" bqn-ne " out-append endof
+    [char] < of s" bqn-lt " out-append endof
+    [char] > of s" bqn-gt " out-append endof
+    $2264   of s" bqn-le " out-append endof
+    $2265   of s" bqn-ge " out-append endof
+    true abort" Unknown dyadic primitive"
+  endcase ;
+
+\ --- Number scanning ---
+
+create _numbuf 64 allot
+variable _numlen
+: _numch ( c -- ) _numbuf _numlen @ + c!  1 _numlen +! ;
+
+3.14159265358979e0 f>bits constant BQN_PI
+
+: scan-number { pos -- val new-pos }
+  false { neg }
+  pos cp@ $AF = if true to neg  pos 1+ to pos then
+  \ Special: ∞
+  pos _cplen @ < if
+    pos cp@ $221E = if
+      neg if NEG_INF else POS_INF then  pos 1+ exit then
+    \ Special: π
+    pos cp@ $3C0 = if
+      BQN_PI neg if $8000000000000000 xor then  pos 1+ exit then
+  then
+  \ Regular number
+  0 _numlen !
+  false false { has-dot has-e }
+  true { go }
+  begin pos _cplen @ < go and while
+    pos cp@ { c }
+    c bqn-digit? if
+      c _numch  pos 1+ to pos
+    else c [char] . = has-dot invert and if
+      true to has-dot  c _numch  pos 1+ to pos
+    else c [char] e = c [char] E = or has-e invert and if
+      true to has-e  [char] e _numch  pos 1+ to pos
+      pos _cplen @ < if pos cp@ $AF = if
+        [char] - _numch  pos 1+ to pos
+      then then
+    else
+      false to go
+    then then then
+  repeat
+  has-e invert if [char] e _numch  [char] 0 _numch then
+  _numbuf _numlen @ >float invert abort" Bad number"
+  neg if fnegate then  f>bits  pos ;
+
+\ --- Character literal scanning ---
+
+: scan-char { pos -- val new-pos }
+  pos 1+ { cpos }
+  cpos _cplen @ >= abort" Unclosed '"
+  cpos cp@ >char
+  cpos 1+ { epos }
+  epos _cplen @ >= abort" Unclosed '"
+  epos cp@ [char] ' <> abort" Expected closing '"
+  epos 1+ ;
+
+\ --- String literal scanning ---
+
+: scan-string ( pos -- val new-pos )
+  1+ { pos }
+  0 { count }
+  begin
+    pos _cplen @ >= abort" Unclosed string"
+    pos cp@ [char] " <> while
+    pos cp@ >char
+    count 1+ to count
+    pos 1+ to pos
+  repeat
+  count mk-list
+  pos 1+ ;
+
+\ --- Parser + code generator ---
+
+: number-start? ( -- f )
+  _pos @ cp@ { c }
+  c bqn-digit? c $AF = or c $221E = or c $3C0 = or if true exit then
+  c [char] . = if
+    _pos @ 1+ _cplen @ < if
+      _pos @ 1+ cp@ bqn-digit? exit then then
+  false ;
+
+defer parse-expr
+
+: parse-atom ( -- )
+  skip-ws
+  at-end? abort" Expected expression"
+  number-start? if
+    _pos @ scan-number _pos !  emit-num exit then
+  _pos @ cp@ [char] ' = if
+    _pos @ scan-char _pos !  emit-char exit then
+  _pos @ cp@ [char] " = if
+    readable @ if
+      advance  0 { scount }
+      begin
+        at-end? abort" Unclosed string"
+        _pos @ cp@ [char] " <> while
+        _pos @ cp@ emit-decimal s" >char " out-append
+        scount 1+ to scount  advance
+      repeat  advance
+      scount emit-decimal s" mk-list " out-append
+    else
+      _pos @ scan-string _pos !  emit-hex
+    then exit then
+  _pos @ cp@ [char] ( = if
+    advance  parse-expr
+    skip-ws  _pos @ cp@ [char] ) <> abort" Expected )"
+    advance exit then
+  _pos @ cp@ $27E8 = if
+    advance
+    0 { count }
+    begin
+      skip-ws  at-end? abort" Unclosed ⟨"
+      _pos @ cp@ $27E9 <> while
+      parse-expr  count 1+ to count
+      skip-ws
+      at-end? invert if
+        _pos @ cp@ [char] , = _pos @ cp@ $22C4 = or
+        if advance then
+      then
+    repeat
+    advance
+    count emit-decimal  s" mk-list " out-append  exit then
+  _pos @ cp@ ." Unexpected: U+" hex . decimal cr abort ;
+
+:noname ( -- )
+  skip-ws
+  at-end? abort" Expected expression"
+  _pos @ cp@ is-bqn-func? if
+    _pos @ cp@ { fn } advance
+    parse-expr
+    fn emit-monad-fn
+  else
+    parse-atom
+    skip-ws
+    at-end? invert if
+      _pos @ cp@ is-bqn-func? if
+        _pos @ cp@ { fn } advance
+        parse-expr
+        fn emit-dyad-fn
+      then
+    then
+  then
+; is parse-expr
+
+\ --- Entry points ---
+
+: bqn-eval ( c-addr u -- v )
+  utf8>cps  0 _pos !
+  out-reset
+  parse-expr
+  skip-ws
+  at-end? invert abort" Unexpected tokens after expression"
+  _out _outp @ evaluate ;
+
+: bqn-show ( c-addr u -- )
+  readable @ >r  1 readable !
+  utf8>cps  0 _pos !
+  out-reset
+  parse-expr
+  skip-ws
+  at-end? invert abort" Unexpected tokens after expression"
+  ." \=> " _out _outp @ type
+  r> readable ! ;
+
+: bqn ( "expr" -- )
+  source >in @ /string
+  2dup bqn-show
+  bqn-eval cr v. cr
+  source nip >in ! ;
+
+: bqn-debug ( "expr" -- )
+  source >in @ /string
+  2dup bqn-show ."  → "
+  bqn-eval v. cr
+  source nip >in ! ;
+
+\ ============================================================
 \ Tests
 \ ============================================================
 
