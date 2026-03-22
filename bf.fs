@@ -503,6 +503,47 @@ create _nbuf 40 allot
   idx 0< idx a arr-nelts >= or abort" ⊑: index out of range"
   a arr-data idx cells + @ ;
 
+\ ¬ (Not / Span)
+: num-not ( x -- r ) 1 >inum swap num-sub ;
+: bqn-not ( x -- r ) ['] num-not swap pervade-m ;
+: num-span ( w x -- r ) num-sub 1 >inum swap num-add ;
+: bqn-span ( w x -- r ) ['] num-span -rot pervade ;
+
+\ ≍ (Solo / Couple)
+: bqn-solo ( x -- r ) 1 mk-list ;
+: bqn-couple ( w x -- r ) 2 mk-list ;
+
+\ ↑ (Take)
+: bqn-take { w x -- r }
+  w inum> { n }
+  x dup arr? invert if 1 mk-list then payload { a }
+  a arr-nelts { len }
+  n 0>= if n else n negate then { an }
+  an len > if len to an then
+  1 an arr-alloc { rr }
+  an rr arr-shape !
+  n 0>= if
+    an 0 ?do a arr-data i cells + @ rr arr-data i cells + ! loop
+  else
+    an 0 ?do a arr-data len an - i + cells + @ rr arr-data i cells + ! loop
+  then rr >arr ;
+
+\ ↓ (Drop)
+: bqn-drop { w x -- r }
+  w inum> { n }
+  x dup arr? invert if 1 mk-list then payload { a }
+  a arr-nelts { len }
+  n 0>= if n else n negate then { an }
+  an len > if len to an then
+  len an - { rn }
+  1 rn arr-alloc { rr }
+  rn rr arr-shape !
+  n 0>= if
+    rn 0 ?do a arr-data an i + cells + @ rr arr-data i cells + ! loop
+  else
+    rn 0 ?do a arr-data i cells + @ rr arr-data i cells + ! loop
+  then rr >arr ;
+
 \ --- Block runtime ---
 
 variable _bqn-x   \ current 𝕩
@@ -512,6 +553,72 @@ variable _bqn-w   \ current 𝕨
 \ Monadic callers pass 0 as 𝕨 (blocks that don't use 𝕨 ignore it).
 : bqn-call1 { fn x -- r }   0 x fn payload execute ;
 : bqn-call2 { w fn x -- r } w x fn payload execute ;
+
+\ --- 1-modifier runtime ---
+
+\ Fold: ´ (monadic — fold array with function)
+: bqn-fold-xt { xt x -- r }
+  x payload { a } a arr-nelts { n }
+  n 0= if ." Error: fold on empty" cr -1 throw then
+  a arr-data @ n 1 ?do a arr-data i cells + @ xt execute loop ;
+
+: bqn-fold-fn { fn x -- r }
+  x payload { a } a arr-nelts { n }
+  n 0= if ." Error: fold on empty" cr -1 throw then
+  a arr-data @ n 1 ?do
+    a arr-data i cells + @ { elem } fn elem bqn-call2
+  loop ;
+
+\ Fold: ´ (dyadic — fold with initial value)
+: bqn-fold-xt-d { w xt x -- r }
+  x payload { a } a arr-nelts { n }
+  w n 0 ?do a arr-data i cells + @ xt execute loop ;
+
+: bqn-fold-fn-d { w fn x -- r }
+  x payload { a } a arr-nelts { n }
+  w n 0 ?do
+    a arr-data i cells + @ { elem } fn elem bqn-call2
+  loop ;
+
+\ Each: ¨ (monadic — apply function to each element)
+: bqn-each-xt { xt x -- r }
+  x payload { a } a cell+ @ a arr-nelts { rank n }
+  rank n arr-alloc { rp }
+  rank 0 ?do a arr-shape i cells + @ rp arr-shape i cells + ! loop
+  n 0 ?do a arr-data i cells + @ xt execute rp arr-data i cells + ! loop
+  rp >arr ;
+
+: bqn-each-fn { fn x -- r }
+  x payload { a } a cell+ @ a arr-nelts { rank n }
+  rank n arr-alloc { rp }
+  rank 0 ?do a arr-shape i cells + @ rp arr-shape i cells + ! loop
+  n 0 ?do fn a arr-data i cells + @ bqn-call1 rp arr-data i cells + ! loop
+  rp >arr ;
+
+\ Each: ¨ (dyadic — apply function element-wise)
+: bqn-each-xt-d { w xt x -- r }
+  w payload x payload { wa xa }
+  xa cell+ @ xa arr-nelts { rank n }
+  rank n arr-alloc { rp }
+  rank 0 ?do xa arr-shape i cells + @ rp arr-shape i cells + ! loop
+  n 0 ?do
+    wa arr-data i cells + @ xa arr-data i cells + @ xt execute
+    rp arr-data i cells + !
+  loop rp >arr ;
+
+: bqn-each-fn-d { w fn x -- r }
+  w payload x payload { wa xa }
+  xa cell+ @ xa arr-nelts { rank n }
+  rank n arr-alloc { rp }
+  rank 0 ?do xa arr-shape i cells + @ rp arr-shape i cells + ! loop
+  n 0 ?do
+    wa arr-data i cells + @ fn xa arr-data i cells + @ bqn-call2
+    rp arr-data i cells + !
+  loop rp >arr ;
+
+\ Swap/self: ˜
+: bqn-call1-self { fn x -- r } x fn x bqn-call2 ;
+: bqn-call2-swap { w fn x -- r } x fn w bqn-call2 ;
 
 \ ============================================================
 \ Phase 3: Parser + Compiler
@@ -580,6 +687,18 @@ variable _pos
     $22A3   of true endof   \ ⊣
     $22A2   of true endof   \ ⊢
     $2291   of true endof   \ ⊑
+    $AC     of true endof   \ ¬
+    $224D   of true endof   \ ≍
+    $2191   of true endof   \ ↑
+    $2193   of true endof   \ ↓
+    false swap
+  endcase ;
+
+: is-1mod? ( cp -- f )
+  case
+    $B4   of true endof  \ ´ fold
+    $A8   of true endof  \ ¨ each
+    $2DC  of true endof  \ ˜ swap/self
     false swap
   endcase ;
 
@@ -738,6 +857,8 @@ variable readable  0 readable !  \ 1 = human-readable output
     [char] / of s" bqn-indices " out-append endof
     $22A2   of endof                             \ ⊢ identity
     $2291   of s" bqn-first " out-append endof   \ ⊑
+    $AC     of s" bqn-not " out-append endof    \ ¬
+    $224D   of s" bqn-solo " out-append endof   \ ≍
     true abort" Unknown monadic primitive"
   endcase ;
 
@@ -762,8 +883,52 @@ variable readable  0 readable !  \ 1 = human-readable output
     $22A3   of s" bqn-left " out-append endof    \ ⊣
     $22A2   of s" bqn-right " out-append endof   \ ⊢
     $2291   of s" bqn-pick " out-append endof    \ ⊑
+    $AC     of s" bqn-span " out-append endof   \ ¬
+    $224D   of s" bqn-couple " out-append endof \ ≍
+    $2191   of s" bqn-take " out-append endof   \ ↑
+    $2193   of s" bqn-drop " out-append endof   \ ↓
     true abort" Unknown dyadic primitive"
   endcase ;
+
+\ --- Emit primitive xt for modifier wrapping ---
+\ Emits the xt of a monadic primitive as a hex literal.
+: emit-prim-xt-m ( cp -- )
+  case
+    [char] + of ['] bqn-conj endof
+    [char] - of ['] bqn-neg endof
+    $D7     of ['] bqn-sign endof
+    $F7     of ['] bqn-recip endof
+    $22C6   of ['] bqn-exp endof
+    $221A   of ['] bqn-sqrt endof
+    $230A   of ['] bqn-floor endof
+    $2308   of ['] bqn-ceil endof
+    [char] | of ['] bqn-abs endof
+    $AC     of ['] bqn-not endof
+    true abort" Can't get monadic xt for this primitive"
+  endcase emit-hex ;
+
+\ Emits the xt of a dyadic primitive as a hex literal.
+: emit-prim-xt ( cp -- )
+  case
+    [char] + of ['] bqn-add endof
+    [char] - of ['] bqn-sub endof
+    $D7     of ['] bqn-mul endof
+    $F7     of ['] bqn-div endof
+    $22C6   of ['] bqn-pow endof
+    $221A   of ['] bqn-root endof
+    $230A   of ['] bqn-min endof
+    $2308   of ['] bqn-max endof
+    [char] | of ['] bqn-mod endof
+    [char] = of ['] bqn-eq endof
+    $2260   of ['] bqn-ne endof
+    [char] < of ['] bqn-lt endof
+    [char] > of ['] bqn-gt endof
+    $2264   of ['] bqn-le endof
+    $2265   of ['] bqn-ge endof
+    $223E   of ['] bqn-join endof
+    $AC     of ['] bqn-span endof
+    true abort" Can't get xt for this primitive"
+  endcase emit-hex ;
 
 \ --- Number scanning ---
 
@@ -908,23 +1073,69 @@ defer parse-expr
 
 \ Parse a function (primitive, uppercase name, or block).
 \ Returns ( fn-type fn-data ). For FN_VAL, emits code that pushes fn.
-: parse-func ( -- fn-type fn-data )
+: parse-func ( -- fn-type fn-data mod-type )
   _pos @ cp@ is-bqn-func? if
-    _pos @ cp@ advance  FN_PRIM swap exit
-  then
-  _pos @ cp@ [char] { = if
-    parse-block  FN_VAL 0 exit
-  then
-  \ Must be uppercase name
-  scan-name nm-intern { slot }
-  slot emit-decimal s" env@? " out-append
-  FN_VAL 0 ;
+    _pos @ cp@ advance  FN_PRIM swap
+  else _pos @ cp@ [char] { = if
+    parse-block  FN_VAL 0
+  else
+    \ Must be uppercase name
+    scan-name nm-intern { slot }
+    slot emit-decimal s" env@? " out-append
+    FN_VAL 0
+  then then
+  \ Check for 1-modifier suffix
+  skip-ws
+  at-end? invert if _pos @ cp@ is-1mod? if
+    _pos @ cp@ advance exit
+  then then
+  0 ;  \ no modifier
 
-: emit-apply-m ( fn-type fn-data -- )
-  swap FN_PRIM = if emit-monad-fn else drop s" bqn-call1 " out-append then ;
+\ Modifier emit: for FN_PRIM, no xt was pre-emitted; we emit inline.
+\ For FN_VAL, the fn value is already on the stack from parse-func.
+\ After parse-expr, the argument x is on top.
+\ Monadic: stack is ( [fn] x )  Dyadic: stack is ( w [fn] x )
+\ For FN_PRIM, [fn] slot is absent — just x (or w x).
 
-: emit-apply-d ( fn-type fn-data -- )
-  swap FN_PRIM = if emit-dyad-fn else drop s" bqn-call2 " out-append then ;
+: emit-apply-m { ft fd mod -- }
+  mod 0= if
+    ft FN_PRIM = if fd emit-monad-fn else s" bqn-call1 " out-append then
+    exit
+  then
+  mod $B4 = if  \ ´ fold monadic
+    ft FN_PRIM = if fd emit-prim-xt s" swap bqn-fold-xt " out-append
+    else s" bqn-fold-fn " out-append then exit
+  then
+  mod $A8 = if  \ ¨ each monadic
+    ft FN_PRIM = if fd emit-prim-xt-m s" swap bqn-each-xt " out-append
+    else s" bqn-each-fn " out-append then exit
+  then
+  mod $2DC = if  \ ˜ self: x F x
+    ft FN_PRIM = if s" dup " out-append fd emit-dyad-fn
+    else s" bqn-call1-self " out-append then exit
+  then
+  ." Error: unimplemented modifier" cr -1 throw ;
+
+: emit-apply-d { ft fd mod -- }
+  mod 0= if
+    ft FN_PRIM = if fd emit-dyad-fn else s" bqn-call2 " out-append then
+    exit
+  then
+  mod $B4 = if  \ ´ fold dyadic: w F´ x — need ( w xt x )
+    ft FN_PRIM = if
+      fd emit-prim-xt s" swap bqn-fold-xt-d " out-append
+    else s" bqn-fold-fn-d " out-append then exit
+  then
+  mod $A8 = if  \ ¨ each dyadic: w F¨ x — need ( w xt x )
+    ft FN_PRIM = if
+      fd emit-prim-xt s" swap bqn-each-xt-d " out-append
+    else s" bqn-each-fn-d " out-append then exit
+  then
+  mod $2DC = if  \ ˜ swap: x F w
+    ft FN_PRIM = if s" swap " out-append fd emit-dyad-fn
+    else s" bqn-call2-swap " out-append then exit
+  then
+  ." Error: unimplemented modifier" cr -1 throw ;
 
 \ Parse a subject atom (values, not functions).
 : parse-atom ( -- )
@@ -984,7 +1195,7 @@ defer parse-expr
   check-assign? if parse-assign exit then
   \ Function: may be applied (F x) or standalone (F←{...})
   cur-is-func? if
-    parse-func { ft fd }
+    parse-func { ft fd mod }
     skip-ws
     \ Check if followed by something that could be an argument
     at-end? invert if
@@ -999,7 +1210,7 @@ defer parse-expr
     else false then
     if
       parse-expr
-      ft fd emit-apply-m
+      ft fd mod emit-apply-m
     then
     exit
   then
@@ -1007,9 +1218,9 @@ defer parse-expr
   parse-atom
   skip-ws
   at-end? invert cur-is-func? and if
-    parse-func { ft fd }
+    parse-func { ft fd mod }
     parse-expr
-    ft fd emit-apply-d
+    ft fd mod emit-apply-d
   then
 ; is parse-expr
 
