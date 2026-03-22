@@ -411,6 +411,98 @@ create _nbuf 40 allot
 \ ≥ (Greater or Equal)
 : bqn-ge ( w x -- r ) ['] num-ge -rot pervade ;
 
+\ --- Structural primitives ---
+
+\ ↕ (Range) — monadic only: ↕n → ⟨0,1,...,n-1⟩
+: bqn-range ( x -- r )
+  inum> { n }
+  1 n arr-alloc { a }
+  n a arr-shape !
+  n 0 ?do i >inum a arr-data i cells + ! loop
+  a >arr ;
+
+\ ≠ monadic (Length) — first axis
+: bqn-len ( x -- r )
+  dup arr? if payload arr-shape @ >inum
+  else drop 1 >inum then ;
+
+\ = monadic (Rank)
+: bqn-rank-m ( x -- r )
+  dup arr? if payload cell+ @ >inum
+  else drop 0 >inum then ;
+
+\ ⊣ (Left) / ⊢ (Right)
+: bqn-left  ( w x -- r ) drop ;
+: bqn-right ( w x -- r ) nip ;
+
+\ ⥊ monadic (Deshape) — flatten to rank-1
+: bqn-deshape ( x -- r )
+  dup arr? invert if 1 mk-list exit then
+  payload { a }
+  a arr-nelts { n }
+  1 n arr-alloc { r }
+  n r arr-shape !
+  n 0 ?do a arr-data i cells + @ r arr-data i cells + ! loop
+  r >arr ;
+
+\ ∾ dyadic (Join) — concatenate two arrays
+: bqn-join ( w x -- r )
+  swap dup arr? invert if 1 mk-list then
+  swap dup arr? invert if 1 mk-list then
+  swap payload swap payload { a b }
+  a arr-nelts b arr-nelts { na nb }
+  1 na nb + arr-alloc { r }
+  na nb + r arr-shape !
+  na 0 ?do a arr-data i cells + @ r arr-data i cells + ! loop
+  nb 0 ?do b arr-data i cells + @ r arr-data na i + cells + ! loop
+  r >arr ;
+
+\ ⌽ monadic (Reverse)
+: bqn-reverse ( x -- r )
+  payload { a }
+  a arr-nelts { n }
+  1 n arr-alloc { r }
+  n r arr-shape !
+  n 0 ?do
+    a arr-data n 1- i - cells + @
+    r arr-data i cells + !
+  loop
+  r >arr ;
+
+\ / monadic (Indices) — /⟨2,0,3⟩ → ⟨0,0,2,2,2⟩
+: bqn-indices ( x -- r )
+  payload { a }
+  a arr-nelts { n }
+  \ First pass: count total elements
+  0  n 0 ?do a arr-data i cells + @ inum> + loop
+  { total }
+  1 total arr-alloc { r }
+  total r arr-shape !
+  0 { pos }
+  n 0 ?do
+    i { idx }
+    a arr-data idx cells + @ inum> { reps }
+    reps 0 ?do
+      idx >inum r arr-data pos cells + !
+      pos 1+ to pos
+    loop
+  loop
+  r >arr ;
+
+\ ⊑ monadic (First) — first element
+: bqn-first ( x -- r )
+  dup arr? invert if exit then  \ scalar: identity
+  payload { a }
+  a arr-nelts 0= abort" ⊑: empty array"
+  a arr-data @ ;
+
+\ ⊑ dyadic (Pick) — simple index
+: bqn-pick ( w x -- r )
+  swap inum> { idx }
+  payload { a }
+  idx 0< idx a arr-nelts >= or abort" ⊑: index out of range"
+  a arr-data idx cells + @ ;
+
 \ ============================================================
 \ Phase 3: Parser + Compiler
 \ ============================================================
@@ -470,8 +562,72 @@ variable _pos
     $2260   of true endof    [char] < of true endof
     [char] > of true endof    $2264   of true endof
     $2265   of true endof
+    $2195   of true endof   \ ↕
+    $294A   of true endof   \ ⥊
+    $223E   of true endof   \ ∾
+    $233D   of true endof   \ ⌽
+    [char] / of true endof
+    $22A3   of true endof   \ ⊣
+    $22A2   of true endof   \ ⊢
+    $2291   of true endof   \ ⊑
     false swap
   endcase ;
+
+\ --- Character classification for names ---
+
+: letter? { c -- f }
+  c [char] a >= c [char] z <= and
+  c [char] A >= c [char] Z <= and  or ;
+
+: name-char? { c -- f }
+  c letter? c bqn-digit? or c [char] _ = or ;
+
+\ --- Variable environment ---
+
+create _env 256 cells allot
+create _nm-strs 4096 allot           \ packed name byte strings
+variable _nm-sp   0 _nm-sp !
+create _nm-ptr 256 cells allot       \ pointer to each name's bytes
+create _nm-slen 256 cells allot      \ length of each name
+variable _nm-count  0 _nm-count !
+
+$DEADBEEF constant ENV_UNDEF
+
+: env@ ( idx -- v ) cells _env + @ ;
+: env@? ( idx -- v ) cells _env + @ dup ENV_UNDEF = if
+  ." Error: undefined name" cr -1 throw then ;
+: env! ( v idx -- ) cells _env + ! ;
+
+\ Store name code points as bytes into persistent buffer.
+: nm-store { start end -- c-addr u }
+  end start - { len }
+  _nm-strs _nm-sp @ + { dst }
+  len 0 ?do
+    start i + cp@ dst i + c!
+  loop
+  len _nm-sp +!
+  dst len ;
+
+\ Find name in table, return index or -1.
+: nm-find ( c-addr u -- idx | -1 )
+  _nm-count @ 0 ?do
+    2dup
+    i cells _nm-ptr + @  i cells _nm-slen + @
+    compare 0= if 2drop i unloop exit then
+  loop 2drop -1 ;
+
+\ Intern a name: find or create slot. Returns slot index.
+: nm-intern { start end -- idx }
+  start end nm-store { addr len }
+  addr len nm-find dup -1 <> if
+    len negate _nm-sp +!  exit  \ reclaim, return existing index
+  then drop
+  _nm-count @ { idx }
+  addr idx cells _nm-ptr + !
+  len idx cells _nm-slen + !
+  ENV_UNDEF idx env!
+  1 _nm-count +!
+  idx ;
 
 \ --- Skip whitespace and comments ---
 
@@ -564,6 +720,14 @@ variable readable  0 readable !  \ 1 = human-readable output
     $230A   of s" bqn-floor " out-append endof
     $2308   of s" bqn-ceil " out-append endof
     [char] | of s" bqn-abs " out-append endof
+    [char] = of s" bqn-rank-m " out-append endof
+    $2260   of s" bqn-len " out-append endof    \ ≠
+    $2195   of s" bqn-range " out-append endof  \ ↕
+    $294A   of s" bqn-deshape " out-append endof \ ⥊
+    $233D   of s" bqn-reverse " out-append endof \ ⌽
+    [char] / of s" bqn-indices " out-append endof
+    $22A2   of endof                             \ ⊢ identity
+    $2291   of s" bqn-first " out-append endof   \ ⊑
     true abort" Unknown monadic primitive"
   endcase ;
 
@@ -584,6 +748,10 @@ variable readable  0 readable !  \ 1 = human-readable output
     [char] > of s" bqn-gt " out-append endof
     $2264   of s" bqn-le " out-append endof
     $2265   of s" bqn-ge " out-append endof
+    $223E   of s" bqn-join " out-append endof    \ ∾
+    $22A3   of s" bqn-left " out-append endof    \ ⊣
+    $22A2   of s" bqn-right " out-append endof   \ ⊢
+    $2291   of s" bqn-pick " out-append endof    \ ⊑
     true abort" Unknown dyadic primitive"
   endcase ;
 
@@ -687,6 +855,25 @@ defer parse-expr
     else
       _pos @ scan-string _pos !  emit-hex
     then exit then
+  _pos @ cp@ letter? if
+    _pos @ { nstart }
+    begin
+      at-end? invert if _pos @ cp@ name-char? else false then
+    while advance repeat
+    _pos @ { nend }
+    nstart nend nm-intern { slot }
+    skip-ws
+    \ Check for ← (U+2190) or ↩ (U+21A9)
+    at-end? invert if
+      _pos @ cp@ dup $2190 = swap $21A9 = or if
+        advance
+        parse-expr
+        s" dup " out-append
+        slot emit-decimal s" env! " out-append
+        exit
+      then
+    then
+    slot emit-decimal s" env@? " out-append exit then
   _pos @ cp@ [char] ( = if
     advance  parse-expr
     skip-ws  _pos @ cp@ [char] ) <> abort" Expected )"
@@ -734,6 +921,16 @@ defer parse-expr
   utf8>cps  0 _pos !
   out-reset
   parse-expr
+  begin
+    skip-ws
+    at-end? invert if
+      _pos @ cp@ dup $22C4 = swap [char] , = or
+    else false then
+  while
+    advance
+    s" drop " out-append
+    parse-expr
+  repeat
   skip-ws
   at-end? invert abort" Unexpected tokens after expression"
   _out _outp @ evaluate ;
@@ -745,12 +942,12 @@ defer parse-expr
   parse-expr
   skip-ws
   at-end? invert abort" Unexpected tokens after expression"
-  ." \=> " _out _outp @ type
+  _out _outp @ type
   r> readable ! ;
 
 : bqn ( "expr" -- )
   source >in @ /string
-  2dup bqn-show
+  ." \=> " 2dup bqn-show
   bqn-eval cr v. cr
   source nip >in ! ;
 
@@ -759,6 +956,22 @@ defer parse-expr
   2dup bqn-show ."  → "
   bqn-eval v. cr
   source nip >in ! ;
+
+\ ============================================================
+\ Phase 5: REPL
+\ ============================================================
+
+: repl
+  cr ." bf — BQN-to-Forth compiler" cr
+  begin
+    ." bf> "
+    refill while cr
+    source s" bye" compare 0= if exit then
+    source nip 0> if
+      source ['] bqn-eval catch
+      if 2drop else v. cr then
+    then
+  repeat cr ;
 
 \ ============================================================
 \ Tests

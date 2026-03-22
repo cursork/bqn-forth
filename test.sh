@@ -147,6 +147,34 @@ test_bqn "⟨⟨1,2⟩,3⟩"    "⟨⟨1,2⟩,3⟩"
 test_bqn "((2+3))"      "((2+3))"
 test_bqn "-|¯5"         "-|¯5"
 
+# --- Structural primitives ---
+test_bqn "↕5"           "↕5"
+test_bqn "↕0"           "↕0"
+test_bqn "≠⟨1,2,3⟩"     "≠⟨1,2,3⟩"
+test_bqn "=⟨1,2,3⟩"     "=⟨1,2,3⟩"
+test_bqn "=42"          "=42"
+test_bqn "⌽⟨1,2,3⟩"     "⌽⟨1,2,3⟩"
+test_bqn "⥊42"          "⥊42"
+test_bqn "⟨1,2⟩∾⟨3,4⟩"  "⟨1,2⟩∾⟨3,4⟩"
+test_bqn "⊑⟨5,6,7⟩"     "⊑⟨5,6,7⟩"
+test_bqn "2⊑⟨5,6,7⟩"    "2⊑⟨5,6,7⟩"
+test_bqn "/⟨2,0,3⟩"     "/⟨2,0,3⟩"
+test_bqn "3⊣5"          "3⊣5"
+test_bqn "3⊢5"          "3⊢5"
+test_bqn "⊢7"           "⊢7"
+
+# --- Combined ---
+test_bqn "1+↕5"         "1+↕5"
+test_bqn "⌽1+↕5"        "⌽1+↕5"
+test_bqn "≠↕10"         "≠↕10"
+
+# --- Names and assignment ---
+# Multi-statement tests need a single bqn-eval call with ⋄ separator
+test_bqn "a←5⋄a+3"         "a←5⋄a+3"
+test_bqn "a←5⋄b←3⋄a×b"    "a←5⋄b←3⋄a×b"
+test_bqn "x←↕5⋄1+x"       "x←↕5⋄1+x"
+test_bqn "a←2⋄a↩a+1⋄a"    "a←2⋄a↩a+1⋄a"
+
 # --- Results ---
 echo ""
 echo "$PASS passed, $FAIL failed"
