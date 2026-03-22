@@ -202,6 +202,69 @@ test_bqn "2↓⟨1,2,3,4,5⟩"       "2↓⟨1,2,3,4,5⟩"
 test_bqn "≍5"                    "≍5"
 test_bqn "1≍2"                   "1≍2"
 
+# --- Strand notation ---
+test_bqn "1‿2‿3"                "1‿2‿3"
+test_bqn "2‿3+1"                "2‿3+1"
+test_bqn "1‿(2+3)‿4"            "1‿(2+3)‿4"
+
+# --- Dyadic reshape ---
+test_bqn "4⥊2"                  "4⥊2"
+test_bqn "2⥊⟨1,2,3⟩"            "2⥊⟨1,2,3⟩"
+test_bqn "5⥊⟨1,2,3⟩"            "5⥊⟨1,2,3⟩"
+
+# --- 2-modifiers: Atop ∘ ---
+test_bqn "(-∘|) ¯5"             "(-∘|) ¯5"
+test_bqn "3 +∘× 4"              "3 +∘× 4"
+test_bqn "-∘⌽ ⟨1,2,3⟩"          "-∘⌽ ⟨1,2,3⟩"
+
+# --- 2-modifiers: Over ○ ---
+test_bqn "(+○|) ¯3"             "(+○|) ¯3"
+test_bqn "¯3 +○| 5"             "¯3 +○| 5"
+test_bqn "¯3 +○× 5"             "¯3 +○× 5"
+
+# --- 2-modifiers: Before ⊸ ---
+test_bqn "(-⊸+) 5"              "(-⊸+) 5"
+test_bqn "3 -⊸+ 5"              "3 -⊸+ 5"
+
+# --- 2-modifiers: After ⟜ ---
+test_bqn "(+⟜-) 5"              "(+⟜-) 5"
+test_bqn "3 +⟜- 5"              "3 +⟜- 5"
+
+# --- Bind left: n⊸F ---
+test_bqn "2⊸+ 5"                "2⊸+ 5"
+test_bqn "10⊸- 3"               "10⊸- 3"
+test_bqn "1⊸+ ⟨2,3,4⟩"         "1⊸+ ⟨2,3,4⟩"
+
+# --- Bind right: F⟜n ---
+test_bqn "+⟜2 5"                "+⟜2 5"
+test_bqn "-⟜10 3"               "-⟜10 3"
+test_bqn "+⟜1 ⟨2,3,4⟩"         "+⟜1 ⟨2,3,4⟩"
+
+# --- Bind dyadic ---
+test_bqn "3 2⊸+ 5"              "3 2⊸+ 5"
+test_bqn "3 +⟜2 5"              "3 +⟜2 5"
+
+# --- 2-modifiers with blocks ---
+test_bqn "({𝕩+1}∘{𝕩×2}) 5"     "({𝕩+1}∘{𝕩×2}) 5"
+test_bqn "{𝕨+𝕩}⟜3 5"            "{𝕨+𝕩}⟜3 5"
+
+# --- 2-modifier chains & combos ---
+test_bqn "(-∘-∘-) 5"            "(-∘-∘-) 5"
+test_bqn "(+∘-)´⟨1,2,3⟩"        "(+∘-)´⟨1,2,3⟩"
+test_bqn "+⟜1¨ ⟨2,3,4⟩"        "+⟜1¨ ⟨2,3,4⟩"
+test_bqn "F←-∘⌽⋄F ⟨1,2,3⟩"     "F←-∘⌽⋄F ⟨1,2,3⟩"
+
+# --- Atop with structural prims ---
+test_bqn "-∘⌽ ⟨1,2,3⟩"          "-∘⌽ ⟨1,2,3⟩"
+
+# --- Dyadic rotate ---
+test_bqn "2⌽⟨1,2,3,4,5⟩"       "2⌽⟨1,2,3,4,5⟩"
+
+# --- Reshape ---
+test_bqn "4⥊2"                  "4⥊2"
+test_bqn "2⥊⟨1,2,3⟩"            "2⥊⟨1,2,3⟩"
+test_bqn "5⥊⟨1,2,3⟩"            "5⥊⟨1,2,3⟩"
+
 # --- Results ---
 echo ""
 echo "$PASS passed, $FAIL failed"

@@ -50,6 +50,7 @@ TAG_SIG 3 48 lshift or constant TAG_FN
 TAG_SIG 4 48 lshift or constant TAG_M1
 TAG_SIG 5 48 lshift or constant TAG_M2
 TAG_SIG 6 48 lshift or constant TAG_NS
+TAG_SIG 7 48 lshift or constant BQN_NOTHING  \ sentinel for absent 𝕨
 
 \ --- Float <-> cell transfer ---
 
@@ -469,6 +470,22 @@ create _nbuf 40 allot
   loop
   r >arr ;
 
+\ ⌽ dyadic (Rotate) — w⌽x: rotate x by w positions
+: bqn-rotate { w x -- r }
+  w inum> { n }
+  x payload { a }
+  a arr-nelts { len }
+  len 0= if x exit then
+  n len mod { shift }
+  shift 0< if shift len + to shift then
+  1 len arr-alloc { r }
+  len r arr-shape !
+  len 0 ?do
+    a arr-data i shift + len mod cells + @
+    r arr-data i cells + !
+  loop
+  r >arr ;
+
 \ / monadic (Indices) — /⟨2,0,3⟩ → ⟨0,0,2,2,2⟩
 : bqn-indices ( x -- r )
   payload { a }
@@ -544,40 +561,84 @@ create _nbuf 40 allot
     rn 0 ?do a arr-data i cells + @ rr arr-data i cells + ! loop
   then rr >arr ;
 
+\ ⥊ dyadic (Reshape) — w⥊x: reshape x to shape w
+: bqn-reshape { w x -- r }
+  x dup arr? invert if 1 mk-list then payload { a }
+  a arr-nelts { srclen }
+  \ w can be a scalar (rank-1 result) or array of dims
+  w arr? if
+    w payload { wp }
+    wp arr-nelts { ndims }
+    \ Compute total elements
+    1  ndims 0 ?do wp arr-data i cells + @ inum> * loop { total }
+    ndims total arr-alloc { rr }
+    ndims 0 ?do wp arr-data i cells + @ inum> rr arr-shape i cells + ! loop
+    total 0 ?do
+      a arr-data i srclen mod cells + @ rr arr-data i cells + !
+    loop
+    rr >arr
+  else
+    w inum> { n }
+    1 n arr-alloc { rr }
+    n rr arr-shape !
+    n 0 ?do
+      a arr-data i srclen mod cells + @ rr arr-data i cells + !
+    loop
+    rr >arr
+  then ;
+
 \ --- Block runtime ---
 
 variable _bqn-x   \ current 𝕩
 variable _bqn-w   \ current 𝕨
+variable _bqn-self \ current 𝕊 (self-reference for recursion)
+
+\ 2-modifier operand capture (used during :noname generation)
+variable _2m_lf   \ left operand fn value
+variable _2m_rf   \ right operand fn value
 
 \ Function calling: all blocks expect ( w x -- r ).
-\ Monadic callers pass 0 as 𝕨 (blocks that don't use 𝕨 ignore it).
-: bqn-call1 { fn x -- r }   0 x fn payload execute ;
-: bqn-call2 { w fn x -- r } w x fn payload execute ;
+\ Monadic callers pass BQN_NOTHING as 𝕨.
+\ Set _bqn-self so blocks can reference 𝕊 for recursion.
+: bqn-call1 { fn x -- r }
+  _bqn-self @ { old-self }  fn _bqn-self !
+  BQN_NOTHING x fn payload execute
+  old-self _bqn-self ! ;
+: bqn-call2 { w fn x -- r }
+  _bqn-self @ { old-self }  fn _bqn-self !
+  w x fn payload execute
+  old-self _bqn-self ! ;
 
 \ --- 1-modifier runtime ---
 
-\ Fold: ´ (monadic — fold array with function)
+\ Fold: ´ (monadic — right-to-left fold)
+\ F´⟨a,b,c⟩ = a F (b F c)
 : bqn-fold-xt { xt x -- r }
   x payload { a } a arr-nelts { n }
   n 0= if ." Error: fold on empty" cr -1 throw then
-  a arr-data @ n 1 ?do a arr-data i cells + @ xt execute loop ;
+  a arr-data n 1- cells + @
+  n 1- 0 ?do a arr-data n 2 - i - cells + @ swap xt execute loop ;
 
 : bqn-fold-fn { fn x -- r }
   x payload { a } a arr-nelts { n }
   n 0= if ." Error: fold on empty" cr -1 throw then
-  a arr-data @ n 1 ?do
-    a arr-data i cells + @ { elem } fn elem bqn-call2
+  a arr-data n 1- cells + @
+  n 1- 0 ?do
+    a arr-data n 2 - i - cells + @ { elem }
+    elem fn rot bqn-call2
   loop ;
 
-\ Fold: ´ (dyadic — fold with initial value)
+\ Fold: ´ (dyadic — fold with initial value, right-to-left)
+\ w F´ x: w is inserted at the right end
 : bqn-fold-xt-d { w xt x -- r }
   x payload { a } a arr-nelts { n }
-  w n 0 ?do a arr-data i cells + @ xt execute loop ;
+  w  n 0 ?do a arr-data n 1- i - cells + @ swap xt execute loop ;
 
 : bqn-fold-fn-d { w fn x -- r }
   x payload { a } a arr-nelts { n }
-  w n 0 ?do
-    a arr-data i cells + @ { elem } fn elem bqn-call2
+  w  n 0 ?do
+    a arr-data n 1- i - cells + @ { elem }
+    elem fn rot bqn-call2
   loop ;
 
 \ Each: ¨ (monadic — apply function to each element)
@@ -699,6 +760,15 @@ variable _pos
     $B4   of true endof  \ ´ fold
     $A8   of true endof  \ ¨ each
     $2DC  of true endof  \ ˜ swap/self
+    false swap
+  endcase ;
+
+: is-2mod? ( cp -- f )
+  case
+    $2218  of true endof  \ ∘ Atop
+    $25CB  of true endof  \ ○ Over
+    $22B8  of true endof  \ ⊸ Before
+    $27DC  of true endof  \ ⟜ After
     false swap
   endcase ;
 
@@ -887,6 +957,8 @@ variable readable  0 readable !  \ 1 = human-readable output
     $224D   of s" bqn-couple " out-append endof \ ≍
     $2191   of s" bqn-take " out-append endof   \ ↑
     $2193   of s" bqn-drop " out-append endof   \ ↓
+    $294A   of s" bqn-reshape " out-append endof \ ⥊
+    $233D   of s" bqn-rotate " out-append endof  \ ⌽
     true abort" Unknown dyadic primitive"
   endcase ;
 
@@ -904,6 +976,15 @@ variable readable  0 readable !  \ 1 = human-readable output
     $2308   of ['] bqn-ceil endof
     [char] | of ['] bqn-abs endof
     $AC     of ['] bqn-not endof
+    $2195   of ['] bqn-range endof
+    $294A   of ['] bqn-deshape endof
+    $233D   of ['] bqn-reverse endof
+    [char] / of ['] bqn-indices endof
+    $2291   of ['] bqn-first endof
+    $224D   of ['] bqn-solo endof
+    $2260   of ['] bqn-len endof
+    [char] = of ['] bqn-rank-m endof
+    $22A2   of 0 endof  \ ⊢ identity — no-op monadic
     true abort" Can't get monadic xt for this primitive"
   endcase emit-hex ;
 
@@ -927,6 +1008,14 @@ variable readable  0 readable !  \ 1 = human-readable output
     $2265   of ['] bqn-ge endof
     $223E   of ['] bqn-join endof
     $AC     of ['] bqn-span endof
+    $22A3   of ['] bqn-left endof
+    $22A2   of ['] bqn-right endof
+    $2291   of ['] bqn-pick endof
+    $224D   of ['] bqn-couple endof
+    $2191   of ['] bqn-take endof
+    $2193   of ['] bqn-drop endof
+    $294A   of ['] bqn-reshape endof
+    $233D   of ['] bqn-rotate endof
     true abort" Can't get xt for this primitive"
   endcase emit-hex ;
 
@@ -1015,6 +1104,21 @@ variable _numlen
   _pos @ cp@ { c }
   c [char] A >= c [char] Z <= and if true exit then
   c [char] { = if true exit then
+  c $1D54A = if true exit then  \ 𝕊
+  false ;
+
+\ Is current position a subject-role token (number, lowercase name, special)?
+: cur-is-subject? ( -- f )
+  at-end? if false exit then
+  number-start? if true exit then
+  _pos @ cp@ { c }
+  c [char] ' = if true exit then
+  c [char] " = if true exit then
+  c [char] ( = if true exit then
+  c $27E8 = if true exit then   \ ⟨
+  c $1D569 = if true exit then  \ 𝕩
+  c $1D568 = if true exit then  \ 𝕨
+  c letter? c [char] a >= c [char] z <= and and if true exit then
   false ;
 
 \ Is current position an assignment (name ← ...)?
@@ -1034,6 +1138,10 @@ variable _numlen
 0 constant FN_PRIM  \ ( -- FN_PRIM code-point )
 1 constant FN_VAL   \ ( -- FN_VAL 0 )  value already emitted to stack
 
+0 constant ROLE_SUBJ
+1 constant ROLE_FUNC
+variable _last-role  \ set by parse-expr to indicate result role
+
 defer parse-expr
 
 \ Scan a name from current position, return start and end indices.
@@ -1044,101 +1152,11 @@ defer parse-expr
   while advance repeat
   nstart _pos @ ;
 
-\ Parse assignment: name ← expr (works for any role).
-: parse-assign ( -- )
-  scan-name nm-intern { slot }
-  skip-ws advance  \ skip ← or ↩
-  parse-expr
-  s" dup " out-append
-  slot emit-decimal s" env! " out-append ;
-
-\ Parse a block { ... } into a :noname function.
-: parse-block ( -- )
-  advance  \ skip {
-  s" :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! " out-append
-  \ Parse body statements
-  parse-expr
-  begin
-    skip-ws
-    at-end? abort" Unclosed {"
-    _pos @ cp@ dup $22C4 = swap [char] , = or
-  while
-    advance
-    s" drop " out-append
-    parse-expr
-  repeat
-  _pos @ cp@ [char] } <> abort" Expected }"
-  advance
-  s" _old_x _bqn-x ! _old_w _bqn-w ! ; >fn " out-append ;
-
-\ Parse a function (primitive, uppercase name, or block).
-\ Returns ( fn-type fn-data ). For FN_VAL, emits code that pushes fn.
-: parse-func ( -- fn-type fn-data mod-type )
-  _pos @ cp@ is-bqn-func? if
-    _pos @ cp@ advance  FN_PRIM swap
-  else _pos @ cp@ [char] { = if
-    parse-block  FN_VAL 0
-  else
-    \ Must be uppercase name
-    scan-name nm-intern { slot }
-    slot emit-decimal s" env@? " out-append
-    FN_VAL 0
-  then then
-  \ Check for 1-modifier suffix
-  skip-ws
-  at-end? invert if _pos @ cp@ is-1mod? if
-    _pos @ cp@ advance exit
-  then then
-  0 ;  \ no modifier
-
-\ Modifier emit: for FN_PRIM, no xt was pre-emitted; we emit inline.
-\ For FN_VAL, the fn value is already on the stack from parse-func.
-\ After parse-expr, the argument x is on top.
-\ Monadic: stack is ( [fn] x )  Dyadic: stack is ( w [fn] x )
-\ For FN_PRIM, [fn] slot is absent — just x (or w x).
-
-: emit-apply-m { ft fd mod -- }
-  mod 0= if
-    ft FN_PRIM = if fd emit-monad-fn else s" bqn-call1 " out-append then
-    exit
-  then
-  mod $B4 = if  \ ´ fold monadic
-    ft FN_PRIM = if fd emit-prim-xt s" swap bqn-fold-xt " out-append
-    else s" bqn-fold-fn " out-append then exit
-  then
-  mod $A8 = if  \ ¨ each monadic
-    ft FN_PRIM = if fd emit-prim-xt-m s" swap bqn-each-xt " out-append
-    else s" bqn-each-fn " out-append then exit
-  then
-  mod $2DC = if  \ ˜ self: x F x
-    ft FN_PRIM = if s" dup " out-append fd emit-dyad-fn
-    else s" bqn-call1-self " out-append then exit
-  then
-  ." Error: unimplemented modifier" cr -1 throw ;
-
-: emit-apply-d { ft fd mod -- }
-  mod 0= if
-    ft FN_PRIM = if fd emit-dyad-fn else s" bqn-call2 " out-append then
-    exit
-  then
-  mod $B4 = if  \ ´ fold dyadic: w F´ x — need ( w xt x )
-    ft FN_PRIM = if
-      fd emit-prim-xt s" swap bqn-fold-xt-d " out-append
-    else s" bqn-fold-fn-d " out-append then exit
-  then
-  mod $A8 = if  \ ¨ each dyadic: w F¨ x — need ( w xt x )
-    ft FN_PRIM = if
-      fd emit-prim-xt s" swap bqn-each-xt-d " out-append
-    else s" bqn-each-fn-d " out-append then exit
-  then
-  mod $2DC = if  \ ˜ swap: x F w
-    ft FN_PRIM = if s" swap " out-append fd emit-dyad-fn
-    else s" bqn-call2-swap " out-append then exit
-  then
-  ." Error: unimplemented modifier" cr -1 throw ;
-
 \ Parse a subject atom (values, not functions).
+\ Sets _last-role to ROLE_SUBJ for normal atoms.
+\ For parenthesized expressions, _last-role is set by the inner parse-expr.
 : parse-atom ( -- )
+  ROLE_SUBJ _last-role !
   skip-ws
   at-end? abort" Expected expression"
   number-start? if
@@ -1187,40 +1205,417 @@ defer parse-expr
     count emit-decimal  s" mk-list " out-append  exit then
   _pos @ cp@ ." Unexpected: U+" hex . decimal cr -1 throw ;
 
+\ Parse assignment: name ← expr (works for any role).
+: parse-assign ( -- )
+  scan-name nm-intern { slot }
+  skip-ws advance  \ skip ← or ↩
+  parse-expr
+  s" dup " out-append
+  slot emit-decimal s" env! " out-append ;
+
+\ Parse a block { ... } into a :noname function.
+: parse-block ( -- )
+  advance  \ skip {
+  s" :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! " out-append
+  \ Parse body statements
+  parse-expr
+  begin
+    skip-ws
+    at-end? abort" Unclosed {"
+    _pos @ cp@ dup $22C4 = swap [char] , = or
+  while
+    advance
+    s" drop " out-append
+    parse-expr
+  repeat
+  _pos @ cp@ [char] } <> abort" Expected }"
+  advance
+  s" _old_x _bqn-x ! _old_w _bqn-w ! ; >fn " out-append ;
+
+\ Parse a raw function token (no modifiers).
+\ Returns ( fn-type fn-data ).
+: parse-func-raw ( -- fn-type fn-data )
+  _pos @ cp@ is-bqn-func? if
+    _pos @ cp@ advance  FN_PRIM swap
+  else _pos @ cp@ [char] { = if
+    parse-block  FN_VAL 0
+  else _pos @ cp@ $1D54A = if  \ 𝕊 self-reference
+    advance  s" _bqn-self @ " out-append  FN_VAL 0
+  else
+    \ Must be uppercase name
+    scan-name nm-intern { slot }
+    slot emit-decimal s" env@? " out-append
+    FN_VAL 0
+  then then then ;
+
+\ Parse a base function (raw function + optional 1-modifier).
+\ Returns ( fn-type fn-data mod-type ).
+: parse-func-base ( -- fn-type fn-data mod-type )
+  parse-func-raw
+  \ Check for 1-modifier suffix
+  skip-ws
+  at-end? invert if _pos @ cp@ is-1mod? if
+    _pos @ cp@ advance exit
+  then then
+  0 ;  \ no modifier
+
+\ --- 2-modifier code emission ---
+\ These emit :noname wrappers for compound functions.
+\ The wrapper is ( w x -- r ) and checks BQN_NOTHING for monadic/dyadic dispatch.
+
+\ Emit code to call a monadic primitive, or bqn-call1 for fn-values.
+\ For FN_PRIM: emits the monadic word.
+\ For FN_VAL with mod: need to handle mod+fn combo — use _2m_lf/_2m_rf.
+: _emit-m-call { ft fd mod which -- }
+  mod 0= if
+    ft FN_PRIM = if fd emit-monad-fn
+    else
+      which 0= if s" _2m_lf " else s" _2m_rf " then out-append
+      s" @ swap bqn-call1 " out-append
+    then exit
+  then
+  \ 1-mod: ´ ¨ ˜ applied monadically
+  mod $B4 = if
+    ft FN_PRIM = if fd emit-prim-xt s" swap bqn-fold-xt " out-append
+    else
+      which 0= if s" _2m_lf " else s" _2m_rf " then out-append
+      s" @ swap bqn-fold-fn " out-append
+    then exit
+  then
+  mod $A8 = if
+    ft FN_PRIM = if fd emit-prim-xt-m s" swap bqn-each-xt " out-append
+    else
+      which 0= if s" _2m_lf " else s" _2m_rf " then out-append
+      s" @ swap bqn-each-fn " out-append
+    then exit
+  then
+  mod $2DC = if
+    ft FN_PRIM = if s" dup " out-append fd emit-dyad-fn
+    else
+      which 0= if s" _2m_lf " else s" _2m_rf " then out-append
+      s" @ swap bqn-call1-self " out-append
+    then exit
+  then
+  true abort" _emit-m-call: unimplemented modifier" ;
+
+\ Emit code to call a dyadic function with TOS=x, NOS=w.
+: _emit-d-call { ft fd mod which -- }
+  mod 0= if
+    ft FN_PRIM = if fd emit-dyad-fn
+    else
+      which 0= if s" _2m_lf " else s" _2m_rf " then out-append
+      s" @ swap bqn-call2 " out-append
+    then exit
+  then
+  mod $B4 = if
+    ft FN_PRIM = if fd emit-prim-xt s" swap bqn-fold-xt-d " out-append
+    else
+      which 0= if s" _2m_lf " else s" _2m_rf " then out-append
+      s" @ swap bqn-fold-fn-d " out-append
+    then exit
+  then
+  mod $A8 = if
+    ft FN_PRIM = if fd emit-prim-xt s" swap bqn-each-xt-d " out-append
+    else
+      which 0= if s" _2m_lf " else s" _2m_rf " then out-append
+      s" @ swap bqn-each-fn-d " out-append
+    then exit
+  then
+  mod $2DC = if
+    ft FN_PRIM = if s" swap " out-append fd emit-dyad-fn
+    else
+      which 0= if s" _2m_lf " else s" _2m_rf " then out-append
+      s" @ swap bqn-call2-swap " out-append
+    then exit
+  then
+  true abort" _emit-d-call: unimplemented modifier" ;
+
+\ Emit a :noname wrapper for a 2-modifier compound.
+\ Lft/Rgt are the two operands (fn-type fn-data mod-type).
+\ mod2 is the 2-modifier code point.
+\ For FN_VAL operands, their values are already on the stack.
+\ We capture them into _2m_lf/_2m_rf before entering :noname.
+: emit-2mod { lft lfd lmod mod2 rft rfd rmod -- }
+  \ Capture FN_VAL operands into variables
+  \ Stack at this point: possibly ( left-fn right-fn ) or just ( right-fn ) etc.
+  \ Right operand was parsed second, so it's on top.
+  rft FN_VAL = if s" _2m_rf ! " out-append then
+  lft FN_VAL = if s" _2m_lf ! " out-append then
+  \ Begin :noname
+  s" :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! " out-append
+  mod2 $2218 = if  \ ∘ Atop: mono F(G x), dyad F(w G x)
+    s" _bqn-w @ BQN_NOTHING = if " out-append
+      s" _bqn-x @ " out-append  rft rfd rmod 1 _emit-m-call  \ G x
+      lft lfd lmod 0 _emit-m-call  \ F result
+    s" else " out-append
+      s" _bqn-w @ _bqn-x @ " out-append  rft rfd rmod 1 _emit-d-call  \ w G x
+      lft lfd lmod 0 _emit-m-call  \ F result
+    s" then " out-append
+  then
+  mod2 $25CB = if  \ ○ Over: mono F(G x), dyad (G w) F (G x)
+    s" _bqn-w @ BQN_NOTHING = if " out-append
+      s" _bqn-x @ " out-append  rft rfd rmod 1 _emit-m-call
+      lft lfd lmod 0 _emit-m-call
+    s" else " out-append
+      s" _bqn-w @ " out-append  rft rfd rmod 1 _emit-m-call
+      s" _bqn-x @ " out-append  rft rfd rmod 1 _emit-m-call
+      lft lfd lmod 0 _emit-d-call
+    s" then " out-append
+  then
+  mod2 $22B8 = if  \ ⊸ Before: mono (F x) G x, dyad (F w) G x
+    s" _bqn-w @ BQN_NOTHING = if " out-append
+      s" _bqn-x @ " out-append  lft lfd lmod 0 _emit-m-call
+      s" _bqn-x @ " out-append  rft rfd rmod 1 _emit-d-call
+    s" else " out-append
+      s" _bqn-w @ " out-append  lft lfd lmod 0 _emit-m-call
+      s" _bqn-x @ " out-append  rft rfd rmod 1 _emit-d-call
+    s" then " out-append
+  then
+  mod2 $27DC = if  \ ⟜ After: mono x F (G x), dyad w F (G x)
+    s" _bqn-w @ BQN_NOTHING = if " out-append
+      s" _bqn-x @ " out-append
+      s" _bqn-x @ " out-append  rft rfd rmod 1 _emit-m-call
+      lft lfd lmod 0 _emit-d-call
+    s" else " out-append
+      s" _bqn-w @ " out-append
+      s" _bqn-x @ " out-append  rft rfd rmod 1 _emit-m-call
+      lft lfd lmod 0 _emit-d-call
+    s" then " out-append
+  then
+  s" _old_x _bqn-x ! _old_w _bqn-w ! ; >fn " out-append ;
+
+\ Emit a :noname for subject⊸func (bind left).
+\ Subject value is already emitted and on the stack.
+variable _bnd_l   \ captured left subject for bind
+: emit-2mod-bind-left { mod2 rft rfd rmod -- }
+  \ Subject value is on stack; capture it in variable
+  s" _bnd_l ! " out-append
+  s" :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! " out-append
+  \ ⊸ with left subject: always uses subject as 𝕨 for right function
+  s" _bnd_l @ _bqn-x @ " out-append  rft rfd rmod 1 _emit-d-call
+  s" _old_x _bqn-x ! _old_w _bqn-w ! ; >fn " out-append ;
+
+\ Emit a :noname for func⟜subject (bind right).
+\ Subject value will be emitted after the function.
+variable _bnd_r   \ captured right subject for bind
+: emit-2mod-bind-right { lft lfd lmod mod2 -- }
+  \ Stack: ( [fn-val] subject-val ) — subject on top
+  \ Capture subject first (TOS), then fn if needed (NOS)
+  s" _bnd_r ! " out-append
+  lft FN_VAL = if s" _2m_lf ! " out-append then
+  s" :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! " out-append
+  \ ⟜ with right subject: mono: x F n, dyad: w F n
+  s" _bqn-w @ BQN_NOTHING = if " out-append
+    s" _bqn-x @ " out-append
+  s" else " out-append
+    s" _bqn-w @ " out-append
+  s" then " out-append
+  s" _bnd_r @ " out-append
+  lft lfd lmod 0 _emit-d-call
+  s" _old_x _bqn-x ! _old_w _bqn-w ! ; >fn " out-append ;
+
+\ Parse a function, including 2-modifier chains.
+\ Returns ( fn-type fn-data mod-type ).
+: parse-func ( -- fn-type fn-data mod-type )
+  parse-func-base { lft lfd lmod }
+  \ Check for 2-modifier
+  begin
+    skip-ws
+    at-end? invert if _pos @ cp@ is-2mod? else false then
+  while
+    _pos @ cp@ { mod2 } advance
+    skip-ws
+    \ Check if right operand is a subject (for F⟜n bind-right)
+    mod2 $27DC = cur-is-subject? and cur-is-func? invert and if
+      \ F⟜n: bind right — parse subject, emit wrapper
+      parse-atom
+      lft lfd lmod mod2 emit-2mod-bind-right
+    else
+      parse-func-raw { rft rfd }
+      lft lfd lmod mod2 rft rfd 0 emit-2mod
+    then
+    FN_VAL to lft  0 to lfd  0 to lmod
+  repeat
+  \ Check for 1-modifier suffix on the compound function
+  skip-ws
+  at-end? invert if _pos @ cp@ is-1mod? if
+    _pos @ cp@ advance  lft lfd rot exit
+  then then
+  lft lfd lmod ;
+
+\ Modifier emit: for FN_PRIM, no xt was pre-emitted; we emit inline.
+\ For FN_VAL, the fn value is already on the stack from parse-func.
+\ After parse-expr, the argument x is on top.
+\ Monadic: stack is ( [fn] x )  Dyadic: stack is ( w [fn] x )
+\ For FN_PRIM, [fn] slot is absent — just x (or w x).
+
+: emit-apply-m { ft fd mod -- }
+  mod 0= if
+    ft FN_PRIM = if fd emit-monad-fn else s" bqn-call1 " out-append then
+    exit
+  then
+  mod $B4 = if  \ ´ fold monadic
+    ft FN_PRIM = if fd emit-prim-xt s" swap bqn-fold-xt " out-append
+    else s" bqn-fold-fn " out-append then exit
+  then
+  mod $A8 = if  \ ¨ each monadic
+    ft FN_PRIM = if fd emit-prim-xt-m s" swap bqn-each-xt " out-append
+    else s" bqn-each-fn " out-append then exit
+  then
+  mod $2DC = if  \ ˜ self: x F x
+    ft FN_PRIM = if s" dup " out-append fd emit-dyad-fn
+    else s" bqn-call1-self " out-append then exit
+  then
+  ." Error: unimplemented modifier" cr -1 throw ;
+
+: emit-apply-d { ft fd mod -- }
+  mod 0= if
+    ft FN_PRIM = if fd emit-dyad-fn else s" bqn-call2 " out-append then
+    exit
+  then
+  mod $B4 = if  \ ´ fold dyadic: w F´ x — need ( w xt x )
+    ft FN_PRIM = if
+      fd emit-prim-xt s" swap bqn-fold-xt-d " out-append
+    else s" bqn-fold-fn-d " out-append then exit
+  then
+  mod $A8 = if  \ ¨ each dyadic: w F¨ x — need ( w xt x )
+    ft FN_PRIM = if
+      fd emit-prim-xt s" swap bqn-each-xt-d " out-append
+    else s" bqn-each-fn-d " out-append then exit
+  then
+  mod $2DC = if  \ ˜ swap: x F w
+    ft FN_PRIM = if s" swap " out-append fd emit-dyad-fn
+    else s" bqn-call2-swap " out-append then exit
+  then
+  ." Error: unimplemented modifier" cr -1 throw ;
+
+\ Can an argument follow? (subject or nested function application)
+: can-follow? ( -- f )
+  at-end? if false exit then
+  cur-is-subject? if true exit then
+  cur-is-func? ;
+
 \ Main expression parser.
 :noname ( -- )
   skip-ws
   at-end? abort" Expected expression"
   \ Assignment: name ← expr
-  check-assign? if parse-assign exit then
+  check-assign? if ROLE_SUBJ _last-role ! parse-assign exit then
   \ Function: may be applied (F x) or standalone (F←{...})
   cur-is-func? if
     parse-func { ft fd mod }
     skip-ws
-    \ Check if followed by something that could be an argument
-    at-end? invert if
-      _pos @ cp@ { nc }
-      nc bqn-digit? nc $AF = or nc $221E = or nc $3C0 = or
-      nc [char] ' = or nc [char] " = or
-      nc [char] ( = or nc $27E8 = or
-      nc $1D569 = or nc $1D568 = or  \ 𝕩 𝕨
-      nc [char] . = or
-      nc letter? nc [char] a >= nc [char] z <= and and or
-      cur-is-func? or  \ nested function application: F G x
-    else false then
-    if
+    can-follow? if
       parse-expr
       ft fd mod emit-apply-m
+      ROLE_SUBJ _last-role !
+    else
+      ROLE_FUNC _last-role !
     then
     exit
   then
-  \ Subject, possibly followed by dyadic: w F x
+  \ Subject atom
   parse-atom
+  \ If parse-atom produced a function (via parenthesized expression),
+  \ handle it as a function: check for 1-modifier, 2-modifier, then application.
+  _last-role @ ROLE_FUNC = if
+    0 { pmod }  \ 1-modifier
+    skip-ws
+    \ Check for 1-modifier suffix on parenthesized function
+    at-end? invert if _pos @ cp@ is-1mod? if
+      _pos @ cp@ to pmod  advance
+    then then
+    \ Check for 2-modifier chain
+    begin
+      skip-ws
+      at-end? invert if _pos @ cp@ is-2mod? else false then
+    while
+      _pos @ cp@ { pmod2 } advance
+      skip-ws
+      \ Check if right operand is subject (for (F)⟜n)
+      pmod2 $27DC = cur-is-subject? and cur-is-func? invert and if
+        parse-atom
+        FN_VAL 0 pmod pmod2 emit-2mod-bind-right
+      else
+        parse-func-base { rft rfd rmod }
+        FN_VAL 0 pmod pmod2 rft rfd rmod emit-2mod
+      then
+      0 to pmod
+    repeat
+    skip-ws
+    can-follow? if
+      parse-expr
+      FN_VAL 0 pmod emit-apply-m
+      ROLE_SUBJ _last-role !
+    then
+    exit
+  then
+  \ Check for strand: a‿b‿c → ⟨a, b, c⟩
+  1 { strand-count }
+  begin
+    at-end? invert if _pos @ cp@ $203F = else false then  \ ‿
+  while
+    advance  skip-ws
+    parse-atom  strand-count 1+ to strand-count
+  repeat
+  strand-count 1 > if
+    strand-count emit-decimal  s" mk-list " out-append
+  then
   skip-ws
+  \ Check for n⊸F (bind left) — subject becomes a function
+  at-end? invert if _pos @ cp@ $22B8 = else false then if
+    advance skip-ws
+    parse-func { rft rfd rmod }
+    $22B8 rft rfd rmod emit-2mod-bind-left
+    ROLE_FUNC _last-role !
+    \ Now we have a function value; check if it's applied
+    skip-ws
+    can-follow? if
+      parse-expr
+      FN_VAL 0 0 emit-apply-m
+      ROLE_SUBJ _last-role !
+    then
+    exit
+  then
+  ROLE_SUBJ _last-role !
+  \ Check for dyadic: w F x
+  \ F can be: a primitive, uppercase name, block, or n⊸G compound
   at-end? invert cur-is-func? and if
     parse-func { ft fd mod }
     parse-expr
     ft fd mod emit-apply-d
+  else
+    \ Check for w n⊸F x — subject-started compound function in dyadic position
+    \ Use lookahead: scan past the subject to check for ⊸ + function
+    at-end? invert cur-is-subject? and if
+      _pos @ { saved2 }
+      \ Skip past a subject token (number, name, etc.) to look for ⊸
+      number-start? if _pos @ scan-number _pos ! drop
+      else _pos @ cp@ letter? if
+        begin at-end? invert if _pos @ cp@ name-char? else false then while advance repeat
+      else _pos @ cp@ [char] ( = if
+        \ skip parenthesized expression by counting parens
+        advance 1 { depth }
+        begin depth 0> at-end? invert and while
+          _pos @ cp@ [char] ( = if depth 1+ to depth then
+          _pos @ cp@ [char] ) = if depth 1- to depth then
+          advance
+        repeat
+      then then then
+      skip-ws
+      at-end? invert if _pos @ cp@ $22B8 = else false then { is-bind }
+      saved2 _pos !  \ restore position
+      is-bind if
+        \ Parse the subject (left operand of ⊸)
+        parse-atom
+        skip-ws advance  \ skip ⊸
+        skip-ws
+        parse-func { rft rfd rmod }
+        $22B8 rft rfd rmod emit-2mod-bind-left
+        parse-expr
+        FN_VAL 0 0 emit-apply-d
+      then
+    then
   then
 ; is parse-expr
 
