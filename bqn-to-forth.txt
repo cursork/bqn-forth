@@ -1,0 +1,113 @@
+=== bf vs CBQN ===
+  42 => 42 >inum 
+  0 => 0 >inum 
+  ¯3 => -3 >inum 
+  3.14 => 3.14e0 >num 
+  2+3 => 2 >inum 3 >inum bqn-add 
+  2+3×4 => 2 >inum 3 >inum 4 >inum bqn-mul bqn-add 
+  (2+3)×4 => 2 >inum 3 >inum bqn-add 4 >inum bqn-mul 
+  10-3-2 => 10 >inum 3 >inum 2 >inum bqn-sub bqn-sub 
+  2⋆10 => 2 >inum 10 >inum bqn-pow 
+  7÷2 => 7 >inum 2 >inum bqn-div 
+  2|7 => 2 >inum 7 >inum bqn-mod 
+  3⌊5 => 3 >inum 5 >inum bqn-min 
+  3⌈5 => 3 >inum 5 >inum bqn-max 
+  -3 => 3 >inum bqn-neg 
+  -2+3 => 2 >inum 3 >inum bqn-add bqn-neg 
+  |¯5 => -5 >inum bqn-abs 
+  ⌊3.7 => 3.7e0 >num bqn-floor 
+  ⌈3.2 => 3.2e0 >num bqn-ceil 
+  √4 => 4 >inum bqn-sqrt 
+  ×¯7 => -7 >inum bqn-sign 
+  3=3 => 3 >inum 3 >inum bqn-eq 
+  3<4 => 3 >inum 4 >inum bqn-lt 
+  3≠4 => 3 >inum 4 >inum bqn-ne 
+  3≤3 => 3 >inum 3 >inum bqn-le 
+  ⟨1,2,3⟩ => 1 >inum 2 >inum 3 >inum 3 mk-list 
+  ⟨⟩ => 0 mk-list 
+  1+⟨2,3,4⟩ => 1 >inum 2 >inum 3 >inum 4 >inum 3 mk-list bqn-add 
+  ⟨1,2,3⟩+⟨4,5,6⟩ => 1 >inum 2 >inum 3 >inum 3 mk-list 4 >inum 5 >inum 6 >inum 3 mk-list bqn-add 
+  -⟨1,2,3⟩ => 1 >inum 2 >inum 3 >inum 3 mk-list bqn-neg 
+  ⟨2+3,4×5⟩ => 2 >inum 3 >inum bqn-add 4 >inum 5 >inum bqn-mul 2 mk-list 
+  ⟨⟨1,2⟩,3⟩ => 1 >inum 2 >inum 2 mk-list 3 >inum 2 mk-list 
+  ((2+3)) => 2 >inum 3 >inum bqn-add 
+  -|¯5 => -5 >inum bqn-abs bqn-neg 
+  ↕5 => 5 >inum bqn-range 
+  ↕0 => 0 >inum bqn-range 
+  ≠⟨1,2,3⟩ => 1 >inum 2 >inum 3 >inum 3 mk-list bqn-len 
+  =⟨1,2,3⟩ => 1 >inum 2 >inum 3 >inum 3 mk-list bqn-rank-m 
+  =42 => 42 >inum bqn-rank-m 
+  ⌽⟨1,2,3⟩ => 1 >inum 2 >inum 3 >inum 3 mk-list bqn-reverse 
+  ⥊42 => 42 >inum bqn-deshape 
+  ⟨1,2⟩∾⟨3,4⟩ => 1 >inum 2 >inum 2 mk-list 3 >inum 4 >inum 2 mk-list bqn-join 
+  ⊑⟨5,6,7⟩ => 5 >inum 6 >inum 7 >inum 3 mk-list bqn-first 
+  2⊑⟨5,6,7⟩ => 2 >inum 5 >inum 6 >inum 7 >inum 3 mk-list bqn-pick 
+  /⟨2,0,3⟩ => 2 >inum 0 >inum 3 >inum 3 mk-list bqn-indices 
+  3⊣5 => 3 >inum 5 >inum bqn-left 
+  3⊢5 => 3 >inum 5 >inum bqn-right 
+  ⊢7 => 7 >inum 
+  1+↕5 => 1 >inum 5 >inum bqn-range bqn-add 
+  ⌽1+↕5 => 1 >inum 5 >inum bqn-range bqn-add bqn-reverse 
+  ≠↕10 => 10 >inum bqn-range bqn-len 
+  a←5⋄a+3 => 
+  a←5⋄b←3⋄a×b => 
+  x←↕5⋄1+x => 
+  a←2⋄a↩a+1⋄a => 
+  {𝕩+1}5 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-x @ 1 >inum bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 
+  3{𝕩+𝕨}5 => 3 >inum :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-x @ _bqn-w @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call2 
+  {𝕩×2}⟨1,2,3⟩ => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-x @ 2 >inum bqn-mul _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 1 >inum 2 >inum 3 >inum 3 mk-list bqn-call1 
+  F←{𝕩×2}⋄F 5 => 
+  {𝕩+1}{𝕩×2}5 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-x @ 1 >inum bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-x @ 2 >inum bqn-mul _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 bqn-call1 
+  a←5⋄{𝕩+a}3 => 
+  F←{𝕩+1}⋄G←{𝕩×2}⋄F G 3 => 
+  +´⟨1,2,3,4⟩ => 1 >inum 2 >inum 3 >inum 4 >inum 4 mk-list $0000000536045D40 swap bqn-fold-xt 
+  ×´⟨1,2,3,4⟩ => 1 >inum 2 >inum 3 >inum 4 >inum 4 mk-list $0000000626045E78 swap bqn-fold-xt 
+  5+´⟨1,2,3⟩ => 5 >inum 1 >inum 2 >inum 3 >inum 3 mk-list $000000056E045D40 swap bqn-fold-xt-d 
+  {𝕩×2}¨⟨1,2,3⟩ => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-x @ 2 >inum bqn-mul _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 1 >inum 2 >inum 3 >inum 3 mk-list bqn-each-fn 
+  -¨⟨1,2,3⟩ => 1 >inum 2 >inum 3 >inum 3 mk-list $0000000C7A045E20 swap bqn-each-xt 
+  +˜5 => 5 >inum dup bqn-add 
+  3-˜5 => 3 >inum 5 >inum swap bqn-sub 
+  ¬0 => 0 >inum bqn-not 
+  ¬1 => 1 >inum bqn-not 
+  3↑⟨1,2,3,4,5⟩ => 3 >inum 1 >inum 2 >inum 3 >inum 4 >inum 5 >inum 5 mk-list bqn-take 
+  ¯2↑⟨1,2,3,4,5⟩ => -2 >inum 1 >inum 2 >inum 3 >inum 4 >inum 5 >inum 5 mk-list bqn-take 
+  2↓⟨1,2,3,4,5⟩ => 2 >inum 1 >inum 2 >inum 3 >inum 4 >inum 5 >inum 5 mk-list bqn-drop 
+  ≍5 => 5 >inum bqn-solo 
+  1≍2 => 1 >inum 2 >inum bqn-couple 
+  1‿2‿3 => 1 >inum 2 >inum 3 >inum 3 mk-list 
+  2‿3+1 => 2 >inum 3 >inum 2 mk-list 1 >inum bqn-add 
+  1‿(2+3)‿4 => 1 >inum 2 >inum 3 >inum bqn-add 4 >inum 3 mk-list 
+  4⥊2 => 4 >inum 2 >inum bqn-reshape 
+  2⥊⟨1,2,3⟩ => 2 >inum 1 >inum 2 >inum 3 >inum 3 mk-list bqn-reshape 
+  5⥊⟨1,2,3⟩ => 5 >inum 1 >inum 2 >inum 3 >inum 3 mk-list bqn-reshape 
+  (-∘|) ¯5 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-abs bqn-neg else _bqn-w @ _bqn-x @ bqn-mod bqn-neg then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn -5 >inum bqn-call1 
+  3 +∘× 4 => 3 >inum :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-sign else _bqn-w @ _bqn-x @ bqn-mul then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 4 >inum bqn-call2 
+  -∘⌽ ⟨1,2,3⟩ => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-reverse bqn-neg else _bqn-w @ _bqn-x @ bqn-rotate bqn-neg then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 1 >inum 2 >inum 3 >inum 3 mk-list bqn-call1 
+  (+○|) ¯3 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-abs else _bqn-w @ bqn-abs _bqn-x @ bqn-abs bqn-add then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn -3 >inum bqn-call1 
+  ¯3 +○| 5 => -3 >inum :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-abs else _bqn-w @ bqn-abs _bqn-x @ bqn-abs bqn-add then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call2 
+  ¯3 +○× 5 => -3 >inum :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-sign else _bqn-w @ bqn-sign _bqn-x @ bqn-sign bqn-add then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call2 
+  (-⊸+) 5 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-neg _bqn-x @ bqn-add else _bqn-w @ bqn-neg _bqn-x @ bqn-add then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 
+  3 -⊸+ 5 => 3 >inum :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-neg _bqn-x @ bqn-add else _bqn-w @ bqn-neg _bqn-x @ bqn-add then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call2 
+  (+⟜-) 5 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ _bqn-x @ bqn-neg bqn-add else _bqn-w @ _bqn-x @ bqn-neg bqn-add then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 
+  3 +⟜- 5 => 3 >inum :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ _bqn-x @ bqn-neg bqn-add else _bqn-w @ _bqn-x @ bqn-neg bqn-add then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call2 
+  2⊸+ 5 => 2 >inum _bnd_l ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bnd_l @ _bqn-x @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 
+  10⊸- 3 => 10 >inum _bnd_l ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bnd_l @ _bqn-x @ bqn-sub _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 3 >inum bqn-call1 
+  1⊸+ ⟨2,3,4⟩ => 1 >inum _bnd_l ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bnd_l @ _bqn-x @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 2 >inum 3 >inum 4 >inum 3 mk-list bqn-call1 
+  +⟜2 5 => 2 >inum _bnd_r ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ else _bqn-w @ then _bnd_r @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 
+  -⟜10 3 => 10 >inum _bnd_r ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ else _bqn-w @ then _bnd_r @ bqn-sub _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 3 >inum bqn-call1 
+  +⟜1 ⟨2,3,4⟩ => 1 >inum _bnd_r ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ else _bqn-w @ then _bnd_r @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 2 >inum 3 >inum 4 >inum 3 mk-list bqn-call1 
+  3 2⊸+ 5 => 3 >inum 2 >inum _bnd_l ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bnd_l @ _bqn-x @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call2 
+  3 +⟜2 5 => 3 >inum 2 >inum _bnd_r ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ else _bqn-w @ then _bnd_r @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call2 
+  ({𝕩+1}∘{𝕩×2}) 5 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-x @ 1 >inum bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-x @ 2 >inum bqn-mul _old_x _bqn-x ! _old_w _bqn-w ! ; >fn _2m_rf ! _2m_lf ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ _2m_rf @ swap bqn-call1 _2m_lf @ swap bqn-call1 else _bqn-w @ _bqn-x @ _2m_rf @ swap bqn-call2 _2m_lf @ swap bqn-call1 then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 
+  {𝕨+𝕩}⟜3 5 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ _bqn-x @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 3 >inum _bnd_r ! _2m_lf ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ else _bqn-w @ then _bnd_r @ _2m_lf @ swap bqn-call2 _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 
+  (-∘-∘-) 5 => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-neg bqn-neg else _bqn-w @ _bqn-x @ bqn-sub bqn-neg then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn _2m_lf ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-neg _2m_lf @ swap bqn-call1 else _bqn-w @ _bqn-x @ bqn-sub _2m_lf @ swap bqn-call1 then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 5 >inum bqn-call1 
+  (+∘-)´⟨1,2,3⟩ => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-neg else _bqn-w @ _bqn-x @ bqn-sub then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 1 >inum 2 >inum 3 >inum 3 mk-list bqn-fold-fn 
+  +⟜1¨ ⟨2,3,4⟩ => 1 >inum _bnd_r ! :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ else _bqn-w @ then _bnd_r @ bqn-add _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 2 >inum 3 >inum 4 >inum 3 mk-list bqn-each-fn 
+  F←-∘⌽⋄F ⟨1,2,3⟩ => 
+  -∘⌽ ⟨1,2,3⟩ => :noname _bqn-w @ _bqn-x @ { _old_w _old_x } _bqn-x ! _bqn-w ! _bqn-w @ BQN_NOTHING = if _bqn-x @ bqn-reverse bqn-neg else _bqn-w @ _bqn-x @ bqn-rotate bqn-neg then _old_x _bqn-x ! _old_w _bqn-w ! ; >fn 1 >inum 2 >inum 3 >inum 3 mk-list bqn-call1 
+  2⌽⟨1,2,3,4,5⟩ => 2 >inum 1 >inum 2 >inum 3 >inum 4 >inum 5 >inum 5 mk-list bqn-rotate 
+  4⥊2 => 4 >inum 2 >inum bqn-reshape 
+  2⥊⟨1,2,3⟩ => 2 >inum 1 >inum 2 >inum 3 >inum 3 mk-list bqn-reshape 
+  5⥊⟨1,2,3⟩ => 5 >inum 1 >inum 2 >inum 3 >inum 3 mk-list bqn-reshape 
+
+148 passed, 0 failed
