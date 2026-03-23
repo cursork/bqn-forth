@@ -2,6 +2,10 @@
 
 A BQN-to-Forth compiler. BQN expressions are compiled to Forth for evaluation.
 
+[BQN](https://mlochbaum.github.io/BQN/) was chosen due to having a context-free
+grammar and a good [specification](https://mlochbaum.github.io/BQN/spec/index.html)
+which includes details on [evaluation semantics](https://mlochbaum.github.io/BQN/spec/evaluate.html).
+
 ## Quick start
 
 ```bash
