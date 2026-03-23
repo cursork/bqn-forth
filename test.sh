@@ -1,6 +1,14 @@
 #!/bin/bash
 # Comparative test: bf primitives vs CBQN
-# Usage: ./test.sh
+# Usage: ./test.sh [--show|--debug]
+
+SHOW=0
+DEBUG=0
+if [ "$1" = "--show" ]; then
+  SHOW=1
+elif [ "$1" = "--debug" ]; then
+  DEBUG=1
+fi
 
 BQN=BQN
 PASS=0
@@ -90,6 +98,14 @@ test "1÷0"        "1÷0"        "1 >inum 0 >inum bqn-div"
 test_bqn() {
   local desc="$1" expr="$2"
   local expected got
+
+  if [ "$SHOW" = 1 ]; then
+    echo -n "  $expr => "
+    gforth -e 'include bf.fs' -e "s\" $expr\" bqn-show cr bye" 2>/dev/null
+  elif [ "$DEBUG" = 1 ]; then
+    echo -n "  $expr => "
+    gforth -e 'include bf.fs' -e "s\" $expr\" bqn-debug cr bye" 2>/dev/null
+  fi
 
   expected=$($BQN -p "$expr" 2>&1)
   got=$(gforth -e 'include bf.fs' -e "s\" $expr\" bqn-eval v. cr bye" 2>/dev/null)
