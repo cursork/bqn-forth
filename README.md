@@ -61,6 +61,21 @@ After `include bf.fs`, these words are available:
 
 Tested via running expressions with [CBQN](https://github.com/dzaima/CBQN).
 
+## Multidimensional arrays
+
+Rank ≥ 2 arrays are supported for construction (`⥊`, `≍`), introspection
+(`=` rank, `≠` length), pervasion (`1+2‿3⥊↕6`), and display:
+
+```
+bf> 2‿3⥊↕6
+┌─
+╵ 0 1 2
+  3 4 5
+        ┘
+```
+
+The display matches CBQN for rank-2 numeric arrays (right-aligned columns).
+
 ## Known divergences from BQN
 
 These are intentional simplifications, not bugs:
@@ -68,9 +83,15 @@ These are intentional simplifications, not bugs:
 - **Float formatting** prints 15 significant digits; CBQN prints the shortest
   decimal that round-trips the double (up to 17). So `1÷3` shows
   `0.333333333333333` here vs `0.3333333333333333` in BQN.
+- **Structural primitives are not rank-aware.** `⌽ ↑ ↓ ∾ / ⊑` operate on the
+  flat element order, not BQN's first-axis cell semantics, so `⌽` on a matrix
+  flattens it. Pervasive (arithmetic) primitives do preserve shape.
 - **`↑`/`↓` are dyadic-only** (Take/Drop). Monadic Prefixes/Suffixes are not
   implemented. Dyadic Take also does not pad on overtake — `7↑⟨1,2,3⟩` gives
   `⟨ 1 2 3 ⟩`, not `⟨ 1 2 3 0 0 0 0 ⟩`.
+- **Display falls back to flat `⟨…⟩` form** for rank ≥ 3, character matrices,
+  and matrices of nested arrays. Monadic `↕shape` raises an error rather than
+  building a multidimensional range.
 
 ## License
 

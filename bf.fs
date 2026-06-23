@@ -160,7 +160,22 @@ variable _ftmp
 
 \ --- Printing ---
 
-\ Format a non-negative, non-integer float from the float stack.
+\ --- Cell string buffer ---
+\
+\ To align array elements into columns we format each value into a
+\ byte buffer and track its DISPLAY width (UTF-8 continuation bytes
+\ — 0x80..0xBF — don't add a column, so e.g. ¯2 is 2 columns / 3 bytes).
+create _cb 128 allot
+variable _cbn   \ byte count
+variable _cbw   \ display column count
+: _cb-reset ( -- ) 0 _cbn ! 0 _cbw ! ;
+: _cb-byte ( b -- )
+  dup _cb _cbn @ + c! 1 _cbn +!
+  $C0 and $80 <> if 1 _cbw +! then ;
+: _cb-s ( addr u -- ) over + swap ?do i c@ _cb-byte loop ;
+: _cb-type ( -- ) _cb _cbn @ type ;
+
+\ Format a non-negative, non-integer float into _cb.
 \ Strips trailing zeros for clean output (3.5 not 3.5000...).
 \
 \ NOTE: intentional divergence from BQN. We print 15 significant
@@ -179,32 +194,65 @@ create _nbuf 40 allot
   while 1- repeat
   { sd }
   exp 0> exp sd >= and if
-    sd 0 ?do _nbuf i + c@ emit loop
-    exp sd - 0 ?do [char] 0 emit loop
+    sd 0 ?do _nbuf i + c@ _cb-byte loop
+    exp sd - 0 ?do [char] 0 _cb-byte loop
   else exp 0> if
-    exp 0 ?do _nbuf i + c@ emit loop
-    [char] . emit
-    sd exp ?do _nbuf i + c@ emit loop
+    exp 0 ?do _nbuf i + c@ _cb-byte loop
+    [char] . _cb-byte
+    sd exp ?do _nbuf i + c@ _cb-byte loop
   else
-    [char] 0 emit [char] . emit
-    exp negate 0 ?do [char] 0 emit loop
-    sd 0 ?do _nbuf i + c@ emit loop
+    [char] 0 _cb-byte [char] . _cb-byte
+    exp negate 0 ?do [char] 0 _cb-byte loop
+    sd 0 ?do _nbuf i + c@ _cb-byte loop
   then then ;
 
+\ Format a BQN number value into _cb.
+: v-num ( v -- )
+  dup NEG_INF   = if drop s" ¯∞" _cb-s exit then
+  dup POS_INF   = if drop s" ∞"  _cb-s exit then
+  dup CANON_NAN = if drop s" NaN" _cb-s exit then
+  bits>f
+  fdup f0< if s" ¯" _cb-s fabs then
+  fdup floor fover f= if
+    f>d <# #s #> _cb-s
+  else
+    _fmtnum
+  then ;
+
+\ True if every element of array payload a is a number.
+: arr-all-num? { a -- f }
+  a arr-nelts { n }
+  true n 0 ?do
+    a arr-data i cells + @ num? invert if drop false leave then
+  loop ;
+
+\ Display a rank-2 numeric array payload a as a CBQN-style matrix.
+\ Columns are right-aligned to the widest element in each column.
+create _colw 256 allot   \ per-column display widths (max 32 cols)
+: print-mat2 { a -- }
+  a arr-shape @ { R }
+  a arr-shape cell+ @ { C }
+  C 0 ?do 0 _colw i cells + ! loop
+  R 0 ?do C 0 ?do
+    _cb-reset  a arr-data j C * i + cells + @ v-num
+    _cbw @ _colw i cells + @ max _colw i cells + !
+  loop loop
+  0 C 0 ?do _colw i cells + @ + loop  C 1- +  { dw }
+  dw 4 + { W }
+  s" ┌─" type  W 2 - spaces  cr
+  R 0 ?do
+    i 0= if s" ╵ " type else s"   " type then
+    C 0 ?do
+      _cb-reset  a arr-data j C * i + cells + @ v-num
+      _colw i cells + @ _cbw @ - spaces  _cb-type
+      i C 1- < if space then
+    loop
+    s"   " type  cr
+  loop
+  W 1- spaces s" ┘" type cr ;
+
 : v. ( v -- )
-  dup num? if
-    dup NEG_INF = if drop ." ¯∞" exit then
-    dup POS_INF = if drop ." ∞" exit then
-    dup CANON_NAN = if drop ." NaN" exit then
-    bits>f
-    fdup f0< if ." ¯" fabs then
-    fdup floor fover f= if
-      f>d d>s 0 .r
-    else
-      _fmtnum
-    then
-    exit
-  then
+  dup num? if _cb-reset v-num _cb-type exit then
   dup char? if
     payload
     dup 0= if drop ." @" exit then
@@ -218,6 +266,12 @@ create _nbuf 40 allot
   dup arr? if
     payload { a }
     a arr-nelts { n }
+    \ Rank-2 numeric array → matrix display (rank ≥ 3, char, and nested
+    \ matrices fall through to the flat rank-1 form below — see README).
+    a cell+ @ 2 = n 0> and a arr-all-num? and
+    a arr-shape @ 0> and a arr-shape cell+ @ 0> and if
+      a print-mat2 exit
+    then
     n 0= if ." ⟨⟩" exit then
     \ Check for string (all chars)
     true  n 0 ?do
@@ -424,7 +478,10 @@ create _nbuf 40 allot
 \ --- Structural primitives ---
 
 \ ↕ (Range) — monadic only: ↕n → ⟨0,1,...,n-1⟩
+\ A list argument (↕shape, multidim range) is not supported; error
+\ cleanly rather than reading a tagged value as a length.
 : bqn-range ( x -- r )
+  dup arr? abort" ↕: multidim range (list argument) not supported"
   inum> { n }
   1 n arr-alloc { a }
   n a arr-shape !
@@ -536,8 +593,42 @@ create _nbuf 40 allot
 : bqn-span ( w x -- r ) ['] num-span -rot pervade ;
 
 \ ≍ (Solo / Couple)
-: bqn-solo ( x -- r ) 1 mk-list ;
-: bqn-couple ( w x -- r ) 2 mk-list ;
+
+\ True if array payloads a and b have identical shape.
+: arr-shape= { a b -- f }
+  a cell+ @ b cell+ @ <> if false exit then
+  a cell+ @ { rank }
+  true rank 0 ?do
+    a arr-shape i cells + @ b arr-shape i cells + @ <> if drop false leave then
+  loop ;
+
+\ ≍ monadic (Solo) — add a leading axis of length 1: rank+1, shape 1∾≢x.
+: bqn-solo ( x -- r )
+  dup arr? invert if 1 mk-list exit then
+  payload { a }
+  a cell+ @ { rank }
+  a arr-nelts { n }
+  rank 1+ n arr-alloc { r }
+  1 r arr-shape !
+  rank 0 ?do a arr-shape i cells + @ r arr-shape i 1+ cells + ! loop
+  n 0 ?do a arr-data i cells + @ r arr-data i cells + ! loop
+  r >arr ;
+
+\ ≍ dyadic (Couple) — stack w over x on a new leading axis of length 2.
+\ Operands must have equal shape (as in BQN); atoms give ⟨w x⟩.
+: bqn-couple { w x -- r }
+  w arr? invert x arr? invert and if w x 2 mk-list exit then
+  w arr? invert x arr? invert or if abort" ≍: shapes must match" then
+  w payload x payload { wp xp }
+  wp xp arr-shape= invert if abort" ≍: shapes must match" then
+  xp cell+ @ { rank }
+  xp arr-nelts { n }
+  rank 1+ n 2 * arr-alloc { r }
+  2 r arr-shape !
+  rank 0 ?do xp arr-shape i cells + @ r arr-shape i 1+ cells + ! loop
+  n 0 ?do wp arr-data i cells + @ r arr-data i cells + ! loop
+  n 0 ?do xp arr-data i cells + @ r arr-data n i + cells + ! loop
+  r >arr ;
 
 \ ↑ (Take)
 : bqn-take { w x -- r }

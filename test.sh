@@ -285,6 +285,19 @@ test_bqn "4⥊2"                  "4⥊2"
 test_bqn "2⥊⟨1,2,3⟩"            "2⥊⟨1,2,3⟩"
 test_bqn "5⥊⟨1,2,3⟩"            "5⥊⟨1,2,3⟩"
 
+# --- Multidimensional arrays (rank ≥ 2) ---
+# Construction, introspection, pervasion and rank-2 numeric display.
+test_bqn "2‿3⥊↕6"              "2‿3⥊↕6"
+test_bqn "3‿2⥊↕7"              "3‿2⥊↕7"
+test_bqn "2‿2⥊⟨1,22,333,4⟩"    "2‿2⥊⟨1,22,333,4⟩"
+test_bqn "2‿3⥊⟨1,¯2,3,¯44,5,6⟩" "2‿3⥊⟨1,¯2,3,¯44,5,6⟩"
+test_bqn "1+2‿2⥊↕4"            "1+2‿2⥊↕4"
+test_bqn "=2‿3⥊↕6"             "=2‿3⥊↕6"
+test_bqn "≠2‿3⥊↕6"             "≠2‿3⥊↕6"
+test_bqn "⟨1,2,3⟩≍⟨4,5,6⟩"     "⟨1,2,3⟩≍⟨4,5,6⟩"
+test_bqn "≍⟨1,2,3⟩"            "≍⟨1,2,3⟩"
+test_bqn "1‿2≍3‿4"             "1‿2≍3‿4"
+
 # --- Results ---
 echo ""
 echo "$PASS passed, $FAIL failed"
