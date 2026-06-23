@@ -61,6 +61,17 @@ After `include bf.fs`, these words are available:
 
 Tested via running expressions with [CBQN](https://github.com/dzaima/CBQN).
 
+## Known divergences from BQN
+
+These are intentional simplifications, not bugs:
+
+- **Float formatting** prints 15 significant digits; CBQN prints the shortest
+  decimal that round-trips the double (up to 17). So `1÷3` shows
+  `0.333333333333333` here vs `0.3333333333333333` in BQN.
+- **`↑`/`↓` are dyadic-only** (Take/Drop). Monadic Prefixes/Suffixes are not
+  implemented. Dyadic Take also does not pad on overtake — `7↑⟨1,2,3⟩` gives
+  `⟨ 1 2 3 ⟩`, not `⟨ 1 2 3 0 0 0 0 ⟩`.
+
 ## License
 
 MIT

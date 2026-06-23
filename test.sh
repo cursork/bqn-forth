@@ -149,6 +149,10 @@ test_bqn "3=3"          "3=3"
 test_bqn "3<4"          "3<4"
 test_bqn "3≠4"          "3≠4"
 test_bqn "3≤3"          "3≤3"
+test_bqn "3>4"          "3>4"
+test_bqn "4>3"          "4>3"
+test_bqn "3≥3"          "3≥3"
+test_bqn "2≥3"          "2≥3"
 
 # --- Lists ---
 test_bqn "⟨1,2,3⟩"      "⟨1,2,3⟩"

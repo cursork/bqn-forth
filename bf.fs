@@ -162,6 +162,13 @@ variable _ftmp
 
 \ Format a non-negative, non-integer float from the float stack.
 \ Strips trailing zeros for clean output (3.5 not 3.5000...).
+\
+\ NOTE: intentional divergence from BQN. We print 15 significant
+\ digits; CBQN prints the shortest decimal that round-trips the
+\ double (up to 17 digits). So 1÷3 shows 0.333333333333333 here
+\ vs 0.3333333333333333 in BQN. Matching CBQN exactly needs a
+\ shortest-round-trip formatter (Grisu/Ryū) that isn't worth the
+\ complexity for this compiler — see README "Known divergences".
 create _nbuf 40 allot
 
 : _fmtnum ( F: r -- )
